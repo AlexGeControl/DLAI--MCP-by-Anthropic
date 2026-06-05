@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-research"
+version = "0.1.0"
+description = "An arXiv research MCP server and a modernized MCP chatbot client."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "anthropic>=0.105",
+    "arxiv>=2.2",
+    "mcp>=1.27",
+    "python-dotenv>=1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+mcp-research = "mcp_research.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_research"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: tests that require optional deps (mcp/anthropic) installed",
+]
+
+[tool.ruff]
+line-length = 90
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "PLC"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/mcp_research"]
+ignore_missing_imports = true
+warn_unused_ignores = false

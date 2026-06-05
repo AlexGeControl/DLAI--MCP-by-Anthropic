@@ -1,0 +1,40 @@
+# ── DLAI course IP — never publish raw extracted content ─────────────────────
+raw/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.mypy_cache/
+.ruff_cache/
+
+# ── Pytest / coverage ─────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Node / MCP Inspector ──────────────────────────────────────────────────────
+node_modules/
+*.log
+
+# ── Runtime data (populated by search_papers at runtime) ─────────────────────
+solutions/mcp-research-assistant/starter/papers/
+solutions/mcp-research-assistant/starter/server_config.json
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Claude Code local settings ───────────────────────────────────────────────
+.claude/settings.local.json
+
+# ── OS / IDE ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

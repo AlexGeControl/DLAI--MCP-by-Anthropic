@@ -1,0 +1,143 @@
+{
+  "platform": "deeplearning.ai",
+  "course_slug": "mcp-build-rich-context-ai-apps-with-anthropic",
+  "course_name": "MCP: Build Rich-Context AI Apps with Anthropic",
+  "course_id": 1057,
+  "type": "short_course",
+  "total_duration_seconds": 5938,
+  "compiled_at": "2026-06-03T23:36:16",
+  "sandbox_url_sample": null,
+  "assignment_file_counts": null,
+  "lessons": [
+    {
+      "index": 1,
+      "slug": "fkbhh",
+      "name": "Introduction",
+      "type": "video",
+      "video_id": 883,
+      "program_id": null,
+      "duration_seconds": 199,
+      "transcript": "01-introduction.md"
+    },
+    {
+      "index": 2,
+      "slug": "ccsd0",
+      "name": "Why MCP",
+      "type": "video",
+      "video_id": 884,
+      "program_id": null,
+      "duration_seconds": 471,
+      "transcript": "02-why-mcp.md"
+    },
+    {
+      "index": 3,
+      "slug": "xtt6w",
+      "name": "MCP Architecture",
+      "type": "video",
+      "video_id": 885,
+      "program_id": null,
+      "duration_seconds": 892,
+      "transcript": "03-mcp-architecture.md"
+    },
+    {
+      "index": 4,
+      "slug": "hg6oi",
+      "name": "Chatbot Example",
+      "type": "video_notebook",
+      "video_id": 886,
+      "program_id": 46007,
+      "duration_seconds": 433,
+      "transcript": "04-chatbot-example.md"
+    },
+    {
+      "index": 5,
+      "slug": "dbabg",
+      "name": "Creating an MCP Server",
+      "type": "video_notebook",
+      "video_id": 887,
+      "program_id": 46008,
+      "duration_seconds": 536,
+      "transcript": "05-creating-an-mcp-server.md"
+    },
+    {
+      "index": 6,
+      "slug": "pnd5n",
+      "name": "Creating an MCP Client",
+      "type": "video_notebook",
+      "video_id": 888,
+      "program_id": 46009,
+      "duration_seconds": 552,
+      "transcript": "06-creating-an-mcp-client.md"
+    },
+    {
+      "index": 7,
+      "slug": "k0f9c",
+      "name": "Connecting the MCP Chatbot to Reference Servers",
+      "type": "video_notebook",
+      "video_id": 889,
+      "program_id": 46010,
+      "duration_seconds": 741,
+      "transcript": "07-connecting-the-mcp-chatbot-to-reference-servers.md"
+    },
+    {
+      "index": 8,
+      "slug": "f2uk7",
+      "name": "Adding Prompt and Resource Features",
+      "type": "video_notebook",
+      "video_id": 890,
+      "program_id": 46011,
+      "duration_seconds": 680,
+      "transcript": "08-adding-prompt-and-resource-features.md"
+    },
+    {
+      "index": 9,
+      "slug": "l8ms0",
+      "name": "Configuring Servers for Claude Desktop",
+      "type": "video",
+      "video_id": 891,
+      "program_id": null,
+      "duration_seconds": 381,
+      "transcript": "09-configuring-servers-for-claude-desktop.md"
+    },
+    {
+      "index": 10,
+      "slug": "khdoe",
+      "name": "Creating and Deploying Remote Servers",
+      "type": "video_notebook",
+      "video_id": 892,
+      "program_id": 46012,
+      "duration_seconds": 478,
+      "transcript": "10-creating-and-deploying-remote-servers.md"
+    },
+    {
+      "index": 11,
+      "slug": "algdo",
+      "name": "Conclusion",
+      "type": "video",
+      "video_id": 882,
+      "program_id": null,
+      "duration_seconds": 575,
+      "transcript": "11-conclusion.md"
+    },
+    {
+      "index": 12,
+      "slug": "pw5b7",
+      "name": "Appendix \u2013 Tips and Help",
+      "type": "reading_material",
+      "video_id": null,
+      "program_id": null,
+      "duration_seconds": 600,
+      "transcript": null
+    },
+    {
+      "index": 13,
+      "slug": "b6wqj",
+      "name": "Quiz",
+      "type": "quiz",
+      "video_id": null,
+      "program_id": null,
+      "duration_seconds": 0,
+      "transcript": null
+    }
+  ]
+}
