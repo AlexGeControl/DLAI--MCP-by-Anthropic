@@ -6,7 +6,9 @@ type: video_notebook
 duration_min: 9.2
 video_id: 888
 transcript: raw/transcripts/06-creating-an-mcp-client.md
+notebook: raw/assignments/L5/L5.ipynb
 source_code: raw/assignments/L5/mcp_project/mcp_chatbot.py
+status: notes-complete
 
 # --- knowledge-graph metadata ---
 concepts:

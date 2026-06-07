@@ -6,6 +6,7 @@ type: video
 duration_min: 6.3
 video_id: 891
 transcript: raw/transcripts/09-configuring-servers-for-claude-desktop.md
+status: notes-complete
 
 # --- knowledge-graph metadata ---
 concepts:

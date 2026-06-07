@@ -6,7 +6,9 @@ type: video_notebook
 duration_min: 8.0
 video_id: 892
 transcript: raw/transcripts/10-creating-and-deploying-remote-servers.md
+notebook: raw/assignments/L9/L9.ipynb
 source_code: raw/assignments/L9/mcp_project/research_server.py
+status: notes-baseline
 
 # --- knowledge-graph metadata ---
 concepts:

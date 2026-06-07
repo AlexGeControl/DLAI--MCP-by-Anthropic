@@ -6,6 +6,7 @@ type: video
 duration_min: 9.6
 video_id: 882
 transcript: raw/transcripts/11-conclusion.md
+status: notes-complete
 
 # --- knowledge-graph metadata ---
 concepts:

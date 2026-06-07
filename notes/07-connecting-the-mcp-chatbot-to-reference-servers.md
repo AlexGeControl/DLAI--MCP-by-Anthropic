@@ -6,8 +6,10 @@ type: video_notebook
 duration_min: 12.3
 video_id: 889
 transcript: raw/transcripts/07-connecting-the-mcp-chatbot-to-reference-servers.md
+notebook: raw/assignments/L6/L6.ipynb
 source_code: raw/assignments/L6/mcp_project/mcp_chatbot.py
 config: raw/assignments/L6/mcp_project/server_config.json
+status: notes-baseline
 
 # --- knowledge-graph metadata ---
 concepts:

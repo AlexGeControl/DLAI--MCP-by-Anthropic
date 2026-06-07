@@ -6,7 +6,9 @@ type: video_notebook
 duration_min: 11.3
 video_id: 890
 transcript: raw/transcripts/08-adding-prompt-and-resource-features.md
+notebook: raw/assignments/L7/L7.ipynb
 source_code: raw/assignments/L7/mcp_project/research_server.py
+status: notes-baseline
 
 # --- knowledge-graph metadata ---
 concepts:

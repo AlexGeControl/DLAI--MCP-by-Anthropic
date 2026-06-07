@@ -7,6 +7,7 @@ duration_min: 7.2
 video_id: 886
 transcript: raw/transcripts/04-chatbot-example.md
 notebook: raw/assignments/L3/L3.ipynb
+status: notes-baseline
 
 # --- knowledge-graph metadata ---
 concepts:

@@ -6,6 +6,7 @@ type: reading_material
 duration_min: 10.0
 video_id: null
 transcript: null
+status: notes-baseline
 
 # --- knowledge-graph metadata ---
 concepts: []
