@@ -53,8 +53,9 @@ graph TD
 **Core:** [[mcp]] · [[mcp-architecture]] · [[json-rpc]]
 **Roles:** [[mcp-host]] · [[mcp-client]] · [[mcp-server]]
 **Transports:** [[transport]] · [[stdio-transport]] · [[streamable-http-transport]] ⚠️
-**Server primitives:** [[tools]] · [[resources]] · [[prompt-templates]]
-**Tooling & patterns:** [[fastmcp]] · [[mcp-inspector]] · [[tool-use-loop]] · [[claude-desktop-config]] · [[remote-server]]
+**Server primitives:** [[tools]] · [[resources]] · [[prompt-templates]] · [[mcp-control-model]]
+**Tooling & patterns:** [[fastmcp]] · [[mcp-inspector]] · [[tool-use-loop]] · [[mcp-session-init]] · [[claude-desktop-config]] · [[remote-server]]
+**Client internals (tool/resource/prompt data shapes):** [[anthropic-tool-use-schema]] · [[mcp-tool-result]] · [[mcp-resource-access]] · [[mcp-resource-result]] · [[mcp-prompt-access]] · [[mcp-prompt-result]] · [[openai-to-anthropic-migration]]
 
 ## Companion artifacts (outside the vault)
 - 🧪 **Modernization report** — `reports/modernization.md` (what's stale: SSE transport, model id, junk deps)

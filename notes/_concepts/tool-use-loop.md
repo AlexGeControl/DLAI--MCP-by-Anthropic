@@ -15,5 +15,7 @@ the **app** does the actual calling and feeds results back.
 - Same loop whether tools are local Python functions ([[04-chatbot-example]]) or remote
   [[mcp-server]] tools ([[06-creating-an-mcp-client]]) — only *how the result is fetched* changes.
 - Built on the Anthropic Messages API `tools=` parameter and `tool_use`/`tool_result` content.
+- The exact request/response shapes (and how to feed results back) live in
+  [[anthropic-tool-use-schema]]; SDK-specific pitfalls in [[openai-to-anthropic-migration]].
 
-Related: [[tools]] · [[mcp-client]] · [[json-rpc]]
+Related: [[tools]] · [[mcp-client]] · [[json-rpc]] · [[anthropic-tool-use-schema]]

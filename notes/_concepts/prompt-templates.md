@@ -14,4 +14,4 @@ Declared with `@mcp.prompt()`. The decorated function's parameters become the
 template's arguments (required vs. optional from defaults), and its return value
 is the prompt string the client feeds to the model.
 
-Related: [[tools]] · [[resources]] · [[mcp-server]] · [[08-adding-prompt-and-resource-features]]
+Related: [[tools]] · [[resources]] · [[mcp-server]] · [[mcp-prompt-access]] · [[mcp-prompt-result]] · [[mcp-control-model]] · [[08-adding-prompt-and-resource-features]]

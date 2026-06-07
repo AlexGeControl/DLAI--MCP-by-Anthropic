@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "08-adding-prompt-and-resource-features.md",
+                "file": "06-creating-an-mcp-client.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "08-adding-prompt-and-resource-features"
+              "title": "06-creating-an-mcp-client"
             }
           }
         ]
@@ -183,8 +183,10 @@
   "active": "fb4666bb2d3b4d38",
   "lastOpenFiles": [
     "07-connecting-the-mcp-chatbot-to-reference-servers.md",
-    "05-creating-an-mcp-server.md",
     "06-creating-an-mcp-client.md",
-    "04-chatbot-example.md"
+    "05-creating-an-mcp-server.md",
+    "_concepts/stdio-transport.md",
+    "04-chatbot-example.md",
+    "08-adding-prompt-and-resource-features.md"
   ]
 }

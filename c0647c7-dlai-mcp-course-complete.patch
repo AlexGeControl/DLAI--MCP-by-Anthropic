@@ -1,0 +1,1759 @@
+From c0647c714d1d8b82b0268fbbe0550009069eb3ad Mon Sep 17 00:00:00 2001
+From: Ge Yao <gyao@nvidia.com>
+Date: Sun, 7 Jun 2026 00:54:56 -0700
+Subject: [PATCH] Complete DLAI MCP course: client implementation + knowledge
+ vault
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Implementation (solutions/):
+- client.py: full multi-server async MCP chatbot using AsyncAnthropic against
+  the NVIDIA inference hub — tools, resources, and prompts all working live in
+  Claude Code TUI (tested manually + 25/25 unit tests pass)
+- server.py: research server with search_papers, extract_info, resource
+  endpoints (papers://folders, papers://{topic}), and generate_search_prompt
+- .env.example: documents bare-host ANTHROPIC_BASE_URL pattern (no /v1 suffix)
+- server_config.json: updated with venv-python path for stdio spawn
+
+Knowledge vault (notes/):
+- 9 new concept atoms: mcp-session-init, mcp-tool-result, mcp-resource-access,
+  mcp-resource-result, mcp-prompt-access, mcp-prompt-result, mcp-control-model,
+  anthropic-tool-use-schema, openai-to-anthropic-migration
+- Updated lesson notes 06/09/11 with deep-links to concept atoms; 06 now a
+  navigation hub rather than duplicating atom content
+- MOC (00) updated with full concept atom index
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+---
+ .gitignore                                    |   2 +
+ notes/00-map-of-content.md                    |   5 +-
+ notes/06-creating-an-mcp-client.md            |  51 ++-
+ ...-configuring-servers-for-claude-desktop.md |  70 ++-
+ notes/11-conclusion.md                        |  30 +-
+ notes/_concepts/anthropic-tool-use-schema.md  |  88 ++++
+ notes/_concepts/mcp-client.md                 |   2 +-
+ notes/_concepts/mcp-control-model.md          |  56 +++
+ notes/_concepts/mcp-prompt-access.md          |  71 +++
+ notes/_concepts/mcp-prompt-result.md          |  70 +++
+ notes/_concepts/mcp-resource-access.md        |  64 +++
+ notes/_concepts/mcp-resource-result.md        |  92 ++++
+ notes/_concepts/mcp-session-init.md           | 211 +++++++++
+ notes/_concepts/mcp-tool-result.md            |  54 +++
+ .../openai-to-anthropic-migration.md          |  44 ++
+ notes/_concepts/prompt-templates.md           |   2 +-
+ notes/_concepts/resources.md                  |   2 +-
+ notes/_concepts/tool-use-loop.md              |   4 +-
+ notes/_concepts/tools.md                      |   2 +-
+ .../mcp-research-assistant/server_config.json |   2 +-
+ .../starter/src/mcp_research/.env.example     |   4 +
+ .../starter/src/mcp_research/client.py        | 427 +++++++++++++++++-
+ .../starter/src/mcp_research/server.py        |  28 +-
+ 23 files changed, 1328 insertions(+), 53 deletions(-)
+ create mode 100644 notes/_concepts/anthropic-tool-use-schema.md
+ create mode 100644 notes/_concepts/mcp-control-model.md
+ create mode 100644 notes/_concepts/mcp-prompt-access.md
+ create mode 100644 notes/_concepts/mcp-prompt-result.md
+ create mode 100644 notes/_concepts/mcp-resource-access.md
+ create mode 100644 notes/_concepts/mcp-resource-result.md
+ create mode 100644 notes/_concepts/mcp-session-init.md
+ create mode 100644 notes/_concepts/mcp-tool-result.md
+ create mode 100644 notes/_concepts/openai-to-anthropic-migration.md
+ create mode 100644 solutions/mcp-research-assistant/starter/src/mcp_research/.env.example
+
+diff --git a/.gitignore b/.gitignore
+index d0e9ecd..a22c535 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -21,6 +21,8 @@ node_modules/
+ *.log
+ 
+ # ── Runtime data (populated by search_papers at runtime) ─────────────────────
++papers/
++solutions/mcp-research-assistant/papers/
+ solutions/mcp-research-assistant/starter/papers/
+ solutions/mcp-research-assistant/starter/server_config.json
+ 
+diff --git a/notes/00-map-of-content.md b/notes/00-map-of-content.md
+index 7fcaf5e..ff0cb0e 100644
+--- a/notes/00-map-of-content.md
++++ b/notes/00-map-of-content.md
+@@ -53,8 +53,9 @@ graph TD
+ **Core:** [[mcp]] · [[mcp-architecture]] · [[json-rpc]]
+ **Roles:** [[mcp-host]] · [[mcp-client]] · [[mcp-server]]
+ **Transports:** [[transport]] · [[stdio-transport]] · [[streamable-http-transport]] ⚠️
+-**Server primitives:** [[tools]] · [[resources]] · [[prompt-templates]]
+-**Tooling & patterns:** [[fastmcp]] · [[mcp-inspector]] · [[tool-use-loop]] · [[claude-desktop-config]] · [[remote-server]]
++**Server primitives:** [[tools]] · [[resources]] · [[prompt-templates]] · [[mcp-control-model]]
++**Tooling & patterns:** [[fastmcp]] · [[mcp-inspector]] · [[tool-use-loop]] · [[mcp-session-init]] · [[claude-desktop-config]] · [[remote-server]]
++**Client internals (tool/resource/prompt data shapes):** [[anthropic-tool-use-schema]] · [[mcp-tool-result]] · [[mcp-resource-access]] · [[mcp-resource-result]] · [[mcp-prompt-access]] · [[mcp-prompt-result]] · [[openai-to-anthropic-migration]]
+ 
+ ## Companion artifacts (outside the vault)
+ - 🧪 **Modernization report** — `reports/modernization.md` (what's stale: SSE transport, model id, junk deps)
+diff --git a/notes/06-creating-an-mcp-client.md b/notes/06-creating-an-mcp-client.md
+index e5463f0..6421170 100644
+--- a/notes/06-creating-an-mcp-client.md
++++ b/notes/06-creating-an-mcp-client.md
+@@ -14,12 +14,22 @@ concepts:
+   - stdio-transport
+   - tool-use-loop
+   - mcp-host
++  - mcp-session-init
+ prerequisites:
+   - "[[05-creating-an-mcp-server]]"    # the server this client connects to
+   - "[[04-chatbot-example]]"           # the tool-use loop reused here
+ related:
+   - "[[03-mcp-architecture]]"
+   - "[[mcp-inspector]]"                # the client replaces the inspector as the way to drive the server
++  - "[[mcp-session-init]]"             # full connect/discover/route workflow
++  - "[[mcp-tool-result]]"              # CallToolResult schema
++  - "[[mcp-resource-access]]"          # select/resolve/read/inject
++  - "[[mcp-resource-result]]"          # ReadResourceResult schema
++  - "[[mcp-prompt-access]]"            # discover/invoke/run
++  - "[[mcp-prompt-result]]"            # GetPromptResult schema
++  - "[[mcp-control-model]]"            # why primitives surface differently
++  - "[[anthropic-tool-use-schema]]"    # Anthropic message shapes
++  - "[[openai-to-anthropic-migration]]"  # SDK gotchas
+ leads_to:
+   - "[[07-connecting-the-mcp-chatbot-to-reference-servers]]"  # next: one client → many servers
+ tags: [mcp, client, stdio, asyncio, session]
+@@ -80,19 +90,23 @@ server_params = StdioServerParameters(
+ )
+ async with stdio_client(server_params) as (read, write):     # launch server as subprocess
+     async with ClientSession(read, write) as session:
+-        await session.initialize()                            # 1. handshake
+-        response = await session.list_tools()                 # 2. discover tools
++        await session.initialize()                            # 1. handshake + capability negotiation
++        response = await session.list_tools()                 # 2. returns ListToolsResult wrapper
+         self.available_tools = [{
+             "name": tool.name,
+             "description": tool.description,
+-            "input_schema": tool.inputSchema,                 # schema came from FastMCP inference
+-        } for tool in response.tools]
++            "input_schema": tool.inputSchema,                 # camelCase → snake_case; schema from FastMCP
++        } for tool in response.tools]                        # iterate .tools — NOT response itself
+ ```
+ 
+-- `stdio_client` gives a `(read, write)` stream pair — the [[stdio-transport]].
+-- `ClientSession` is the high-level wrapper exposing `initialize`, `list_tools`, `call_tool`.
+-- The tool dicts are reshaped into exactly the Anthropic `tools=` format from Lesson 4 — so the
+-  LLM side is identical; only the **source** of the schema changed (server-provided, FastMCP-inferred).
++The course shows tools only. A production host also calls `list_resources()`,
++`list_resource_templates()`, and `list_prompts()` — each returning its own wrapper (`ListResourcesResult`,
++etc.) — and **gates every call on `initialize()`'s capability flags** so bare servers don't abort the
++connect.
++
++> Full details — wrapper types, capability-gating, `try/except` pattern, routing registries,
++> `inputSchema` → `input_schema` reshape, and resources/prompts registration:
++> **[[mcp-session-init]]**
+ 
+ ### Same [[tool-use-loop]], remote execution
+ In `process_query`, the one changed line is how a tool runs:
+@@ -102,7 +116,11 @@ In `process_query`, the one changed line is how a tool runs:
+ result = await self.session.call_tool(tool_name, arguments=tool_args)   # 3. call over MCP
+ ```
+ 
+-The server invokes the tool and returns `result.content`, appended as a `tool_result`.
++The server invokes the tool; `result` is a `CallToolResult` (`.content` list, `.isError` flag).
++The host appends a `tool_result` block and calls the model again until `stop_reason != "tool_use"`.
++
++> MCP's `CallToolResult` schema (`.content`, `.structuredContent`, `.isError`): **[[mcp-tool-result]]**  
++> Anthropic `tool_use` / `tool_result` message shapes + the full agentic loop: **[[anthropic-tool-use-schema]]**
+ 
+ ## Mechanics / walkthrough
+ 
+@@ -126,9 +144,16 @@ The server invokes the tool and returns `result.content`, appended as a `tool_re
+ ## Connections
+ - ⬅ Connects to the server from [[05-creating-an-mcp-server]]; reuses the loop from [[04-chatbot-example]]
+ - ➡ Generalized to **many servers via config** in [[07-connecting-the-mcp-chatbot-to-reference-servers]]
+-- 📖 Vocabulary: [[mcp-client]], [[mcp-host]], [[stdio-transport]] (replaces the [[mcp-inspector]])
++- 📖 Vocabulary: [[mcp-client]], [[mcp-host]], [[stdio-transport]] (replaces [[mcp-inspector]])
++- 🧩 **Session init & primitive registration** (the full connect/discover/route pattern): [[mcp-session-init]]
++- 🔧 **Tool dispatch** — MCP result schema: [[mcp-tool-result]]; Anthropic message shapes: [[anthropic-tool-use-schema]]; agentic loop: [[tool-use-loop]]
++- 📂 **Resource access** — select/resolve/read/inject flow: [[mcp-resource-access]]; `ReadResourceResult` schema: [[mcp-resource-result]]
++- 💬 **Prompt access** — discover/invoke/run flow: [[mcp-prompt-access]]; `GetPromptResult` schema: [[mcp-prompt-result]]
++- 🎛️ **Why tool/resource/prompt surface differently** in a real host: [[mcp-control-model]]
++- ⚠️ SDK gotchas (base URL, `tool_choice`, tool-name regex): [[openai-to-anthropic-migration]]
+ 
+ > [!tip] Phone takeaway
+-> A client is just: launch the server over **stdio**, then `initialize → list_tools → call_tool`
+-> through a `ClientSession`. Tools are now **discovered from the server**, not hard-coded — but the
+-> tool-use loop driving Claude is the same one from Lesson 4.
++> A client is: launch subprocess over **stdio** → `initialize` (capability handshake) →
++> `list_tools / list_resources / list_prompts` (each returns a *wrapper*, iterate its attribute) →
++> build routing registries → `call_tool / read_resource / get_prompt` on dispatch.
++> The [[tool-use-loop]] driving Claude is unchanged from Lesson 4 — only *how results are fetched* changes.
+diff --git a/notes/09-configuring-servers-for-claude-desktop.md b/notes/09-configuring-servers-for-claude-desktop.md
+index 3ac0664..ec5d0c2 100644
+--- a/notes/09-configuring-servers-for-claude-desktop.md
++++ b/notes/09-configuring-servers-for-claude-desktop.md
+@@ -21,7 +21,8 @@ leads_to:
+ related:
+   - "[[03-mcp-architecture]]"
+   - "[[06-creating-an-mcp-client]]"   # the low-level client this replaces
+-tags: [mcp, host, claude-desktop, config, stdio]
++  - "[[mcp-control-model]]"           # what the connected primitives surface AS
++tags: [mcp, host, claude-desktop, claude-code, config, stdio]
+ ---
+ 
+ # Lesson 9 — Configuring Servers for Claude Desktop
+@@ -91,15 +92,78 @@ list a wide range of compatible hosts (IDEs, CLIs, web and agentic apps); the sa
+ 4. Demo: one prompt chains servers — `fetch` DeepLearning.AI → `search_papers` on the research server →
+    the **artifacts** feature builds a flashcard quiz from the findings.
+ 
++## Doing it yourself in Claude Code (CLI host) — no Desktop required
++
++On Linux there's no Claude Desktop, but **Claude Code is itself an MCP host** — the same role,
++a different surface. The same servers from your `server_config.json` register via the
++`claude mcp` CLI instead of a JSON file edited in a GUI.
++
++> [!note] The same absolute-path lesson, one level deeper
++> Desktop needed the absolute *file* path because it spawns the subprocess. Claude Code needs the
++> absolute *interpreter* path for the same reason: bare `python` resolves to base conda (no
++> `mcp_research`), so point `research` at the **venv** python. `npx`/`uvx` are already on `PATH`,
++> so they can stay bare.
++
++```bash
++# research — MUST use the venv python that has mcp_research installed
++claude mcp add research -- \
++  /home/gyao/Workspace/DLAI--MCP-by-Anthropic/solutions/mcp-research-assistant/starter/.venv/bin/python \
++  -m mcp_research server
++
++# filesystem — serves Claude Code's cwd (the repo root); swap "." for an abs path to scope it
++claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem .
++
++# fetch
++claude mcp add fetch -- uvx mcp-server-fetch
++```
++
++- The **`--`** separates Claude's own flags from the subprocess command, so `-m` reaches python.
++- `-m mcp_research` works from any cwd because it's an *editable* install in that venv.
++
++### Scope: where the config is written
++
++`claude mcp add` takes `-s/--scope`:
++
++| scope | stored in | committed? | use when |
++|---|---|---|---|
++| `local` (default) | per-project block in `~/.claude.json` | no | **here** — the venv path is machine-specific |
++| `project` | `.mcp.json` at the repo root | yes | portable configs you want to share (use `${VAR}` for paths) |
++| `user` | global user config | no | a server you want in every project |
++
++Local is right for this assignment (absolute paths don't travel). `claude mcp list` / `claude mcp get research` inspect them; `claude mcp remove <name>` undoes it.
++
++### Connect, then probe
++
++MCP servers load at **startup**, so **restart the Claude Code session** after adding (then `/mcp`
++shows status + each server's tools/resources/prompts). First connect for `filesystem`/`fetch` pulls
++their packages via `npx -y` / `uvx`, so allow a few seconds; if either won't spawn, substitute the
++absolute `npx`/`uvx` paths.
++
++The payoff: the three primitives you built surface as the **real Claude Code affordances** — a live
++demonstration of [[mcp-control-model]] (control model → UX surface):
++
++| your primitive | appears in Claude Code as |
++|---|---|
++| [[tools]] | `mcp__research__search_papers`, `mcp__fetch__fetch`, … (model-invoked, gated by approval) |
++| [[resources]] | `@`-mentionable (`papers://folders`, `papers://{topic}`) |
++| [[prompt-templates]] | the slash command **`/mcp__research__generate_search_prompt`** |
++
++That last row is the punchline: Claude Code's own `/mcp__<server>__<prompt>` naming is the very `__`
++delimiter you reverse-engineered for the Anthropic tool-name regex — your server, surfaced verbatim
++in a production host.
++
+ > [!warning] Staleness
+ > Nothing in this lesson has rotted — it's host configuration, not SDK code. (The research server it
+-> points at is the stable stdio version from [[08-adding-prompt-and-resource-features]].)
++> points at is the stable stdio version from [[08-adding-prompt-and-resource-features]].) The Claude
++> Code CLI section above is the modern, Desktop-free path for this repo's Linux environment.
+ 
+ ## Connections
+ - ⬅ Replaces the manual client of [[06-creating-an-mcp-client]]; reuses the config idea from [[07-connecting-the-mcp-chatbot-to-reference-servers]]
+ - ➡ Next, make the server reachable beyond one machine: [[10-creating-and-deploying-remote-servers]]
++- 🖥️ Same idea, Desktop-free: the **Claude Code CLI** host via `claude mcp add` (section above); what the primitives surface as is [[mcp-control-model]]
+ - 📖 [[claude-desktop-config]] · [[mcp-host]] · [[stdio-transport]]
+ 
+ > [!tip] Phone takeaway
+ > A real host like Claude Desktop consumes your server with **just a JSON config** — name + command +
+-> absolute path. No client code; restart Desktop to connect.
++> absolute path. No client code; restart Desktop to connect. On Linux, do the same with the **Claude
++> Code CLI**: `claude mcp add research -- <venv-python> -m mcp_research server`, restart, then `/mcp`.
+diff --git a/notes/11-conclusion.md b/notes/11-conclusion.md
+index 18999dd..eb45d4b 100644
+--- a/notes/11-conclusion.md
++++ b/notes/11-conclusion.md
+@@ -14,6 +14,7 @@ concepts:
+   - mcp-client
+   - mcp-server
+   - remote-server
++  - mcp-control-model
+ prerequisites:
+   - "[[10-creating-and-deploying-remote-servers]]"
+ leads_to:
+@@ -21,6 +22,7 @@ leads_to:
+ related:
+   - "[[02-why-mcp]]"
+   - "[[03-mcp-architecture]]"
++  - "[[mcp-control-model]]"
+ tags: [mcp, recap, roadmap, sampling, roots, oauth]
+ ---
+ 
+@@ -50,6 +52,28 @@ You've covered the **core** of MCP — the [[mcp-architecture]] of [[mcp-host]]
+ [[remote-server]] deploy. This lesson maps the **frontier**: the parts of the protocol still in active
+ development, which is where the ecosystem is heading.
+ 
++## What you actually built: a real host in miniature
++
++The chatbot from [[06-creating-an-mcp-client]] / [[07-connecting-the-mcp-chatbot-to-reference-servers]]
++is a small but faithful **MCP host** — the same role Claude Desktop and Claude Code play. The three
++server primitives you wired surface in those products as affordances you use every day, and *which*
++affordance is dictated by **who controls invocation** (the full story: [[mcp-control-model]]):
++
++| primitive | controlled by | real-client surface | delivers |
++|---|---|---|---|
++| [[tools]] | the **model** | autonomous "🔧 using *X*…" actions (with an approval gate) | an answer to splice back into the loop |
++| [[resources]] | the **app / user** | **`@`-mention / attach context** | data to **inject** |
++| [[prompt-templates]] | the **user** | **`/` slash command** | a conversation to **run** |
++
++So `@`-context and `/`-commands aren't separate magic — they're the resource and prompt primitives you
++implemented, surfaced in a polished UI. (Tellingly, Claude Code even namespaces MCP prompts as
++`/mcp__<server>__<prompt>` — the same `__` scheme you reverse-engineered for tool names.)
++
++**The gap from your miniature to a production host** is the frontier below *plus* two things the
++course's stdio path skips: **per-tool permission/approval gating** (needed precisely because the model
++is the actor), and **remote transport + OAuth** (Lesson 10's Streamable HTTP is the on-ramp). The
++remaining pieces — sampling, roots, elicitation, a registry — are genuinely still-maturing protocol:
++
+ ## Key ideas — what's beyond the course
+ 
+ ### Authentication (OAuth 2.1)
+@@ -91,5 +115,7 @@ collisions** across servers; maturing sampling and auth/authorization at scale.
+ - 📖 [[remote-server]] · [[mcp-architecture]]
+ 
+ > [!tip] Phone takeaway
+-> Core MCP = host/client/server + tools/resources/prompts. The frontier = **OAuth auth, roots,
+-> sampling (server asks the LLM), and a registry** — the pieces that turn MCP into agent infrastructure.
++> Core MCP = host/client/server + tools/resources/prompts — and you built a real host in miniature:
++> **tool = model-driven action, resource = `@`-context, prompt = `/`-command** ([[mcp-control-model]]).
++> The frontier = **OAuth auth, roots, sampling (server asks the LLM), and a registry** — plus
++> permission gating — the pieces that turn MCP into agent infrastructure.
+diff --git a/notes/_concepts/anthropic-tool-use-schema.md b/notes/_concepts/anthropic-tool-use-schema.md
+new file mode 100644
+index 0000000..3687c0d
+--- /dev/null
++++ b/notes/_concepts/anthropic-tool-use-schema.md
+@@ -0,0 +1,88 @@
++---
++title: Anthropic tool-use message schema
++slug: anthropic-tool-use-schema
++tags: [concept, anthropic, tool-use]
++---
++
++# Anthropic tool-use message schema
++
++The concrete wire shapes the Anthropic **Messages API** uses to drive the
++[[tool-use-loop]]. Knowing these is what makes `process_query` in
++[[06-creating-an-mcp-client]] work; getting them subtly wrong is what the
++[[openai-to-anthropic-migration]] traps are about.
++
++## Request side — `messages.create(...)`
++
++- **`system`**
++  - The system prompt is a **top-level string parameter**, *not* a
++  `{"role": "system"}` entry in `messages`. 
++  - `messages` roles are only `user` / `assistant`.
++- **`tools`**
++  - Should be a list of `{"name", "description", "input_schema"}`, in which `input_schema` is raw JSON Schema.
++  - Tool **names must match `^[a-zA-Z0-9_-]{1,128}$`** — no `@`, `/`, or `.`, so namespacing a server's tools needs a safe delimiter like `__`.
++- **`tool_choice`** — an *internally-tagged object*, never a bare string:
++  - `{"type": "auto"}` (default with tools)
++  - `{"type": "any"}` (must call one)
++  - `{"type": "tool", "name": ...}` (force one)
++  - `{"type": "none"}` (no tool call).
++
++## Response side — the `Message` object
++
++### `message.content` Explained
++
++`message.content` is a **list of typed blocks** — branch on `block.type`:
++
++| block type | key fields | meaning |
++|---|---|---|
++| `text` | `.text` | prose to show the user |
++| `tool_use` | `.id`, `.name`, `.input` | the model wants a tool run |
++| `thinking` | `.thinking` | reasoning (only if thinking enabled) |
++
++### `message.stop_reason` Explained
++
++`message.stop_reason` says *why it stopped*: 
++- `tool_use` (run tools, loop again),
++- `end_turn` (done)
++- plus `max_tokens`, `refusal`, `pause_turn`. 
++**Treat anything that isn't `tool_use` as terminal** — looping on an unhandled reason spins forever.
++
++## Feeding results back
++
++1. Append the assistant turn **verbatim**: `{"role": "assistant", "content": message.content}` — the `tool_use` blocks must survive into history. Otherwise the server side status could be corrupted.
++2. Append a **`user`** turn whose content is a list of `tool_result` blocks:
++   ```python
++   {"type": "tool_result",
++    "tool_use_id": block.id,       # must match the tool_use it answers
++    "content": [...] or "fallback",# str, or list of text/image blocks
++    "is_error": bool}              # True lets Claude recover from failures
++   ```
++3. **Every `tool_use` in a turn needs a matching `tool_result`** in the next user turn, or the following call 400s.
++
++### The `tool_result` block schema
++
++| field | type | required | notes |
++|---|---|---|---|
++| `type` | `"tool_result"` | ✅ | the block discriminator |
++| `tool_use_id` | `str` | ✅ | **must equal** the `.id` of the `tool_use` it answers — this is what pairs request↔result |
++| `content` | `str` **or** list of content blocks | ✅ | the result payload. A plain string, or a list of `{"type":"text","text":…}` / `{"type":"image",…}` blocks. **An empty list `[]` is rejected** — always supply a fallback string |
++| `is_error` | `bool` | — (default `false`) | `true` marks a *failed* call; Claude reads the content as an error and can retry or apologize instead of trusting garbage |
++
++The `tool_result` blocks all live in **one** `user` turn (one block per `tool_use`),
++appended after the assistant turn that requested them.
++
++### Bridging from an MCP tool result
++
++When the tool lives behind an [[mcp-server]], you don't build `content` by hand —
++you **translate** the server's `CallToolResult` into this block: 
++- Map its `content` text/image items into Anthropic content blocks, 
++- And pass its `isError` straight through to `is_error`. 
++
++The shape of that MCP-side result — and why you read `content` rather than `structuredContent` — is its own atom: **[[mcp-tool-result]]**.
++
++> [!tip] Phone takeaway
++> Tools/`tool_choice`/`system` go in the **request**; the model answers with a
++> `content` list of `text`/`tool_use` blocks + a `stop_reason`; you reply with a
++> `user` turn of `tool_result` blocks keyed by `tool_use_id`. Loop while
++> `stop_reason == "tool_use"`.
++
++Related: [[tool-use-loop]] · [[openai-to-anthropic-migration]] · [[tools]] · [[mcp-tool-result]] · [[06-creating-an-mcp-client]]
+diff --git a/notes/_concepts/mcp-client.md b/notes/_concepts/mcp-client.md
+index d897bce..b55227b 100644
+--- a/notes/_concepts/mcp-client.md
++++ b/notes/_concepts/mcp-client.md
+@@ -17,4 +17,4 @@ The client's job: **discover and invoke** what a server exposes — list/call [[
+ read [[resources]], fetch [[prompt-templates]] — by exchanging [[json-rpc]] messages over
+ a [[transport]]. The server *exposes*; the client *consumes*.
+ 
+-related: [[mcp-server]] · [[mcp-host]] · [[06-creating-an-mcp-client]] · [[mcp-architecture]]
++related: [[mcp-server]] · [[mcp-host]] · [[mcp-session-init]] · [[06-creating-an-mcp-client]] · [[mcp-architecture]]
+diff --git a/notes/_concepts/mcp-control-model.md b/notes/_concepts/mcp-control-model.md
+new file mode 100644
+index 0000000..bd91a5e
+--- /dev/null
++++ b/notes/_concepts/mcp-control-model.md
+@@ -0,0 +1,56 @@
++---
++title: MCP control model → UX surface
++slug: mcp-control-model
++tags: [concept, mcp]
++---
++
++# MCP control model → UX surface
++
++The single axis that distinguishes the three server primitives: **who decides to
++invoke it?** That control model isn't academic — it *determines how each primitive
++surfaces in a real MCP host* (Claude Desktop, Claude Code, Cursor). The client you
++built in [[06-creating-an-mcp-client]] is a miniature of those hosts, so the same
++mapping holds.
++
++| primitive | who controls invocation | real-client surface | what it delivers |
++|---|---|---|---|
++| [[tools]] | the **model** | the autonomous "🔧 using *X*…" actions, behind a permission gate | an action result spliced back into the [[tool-use-loop]] |
++| [[resources]] | the **app / user** | the **`@`-mention / attach-context** affordance | read-only **data to inject** ([[mcp-resource-access]]) |
++| [[prompt-templates]] | the **user** | the **`/` slash command** | a **conversation to run** ([[mcp-prompt-access]]) |
++
++## Why this is the load-bearing idea
++
++Every design decision across the consumption notes falls out of this one axis:
++
++- **Tools** run through `tool_choice` + the agentic loop *because the model drives
++  them* — and the host gates them behind approval *because the model is acting*.
++- **Resources** are `@`-attached by the user, so "should an LLM pick the resource?"
++  is the wrong question — the user picks (or you promote it to a [[tools|tool]]). No
++  bespoke selector; see the routing discussion in [[mcp-resource-access]].
++- **Prompts** are `/`-invoked by the user, returning messages to *run* (not data to
++  inject) — which is why `execute_prompt` feeds them straight to `process_query`.
++
++So the result-shape trio lines up the same way: **tool → answer to splice ·
++resource → data to inject · prompt → conversation to run.**
++
++## A validation you stumbled into
++
++Claude Code exposes MCP prompts as slash commands named **`/mcp__<server>__<prompt>`**
++and `@`-mentions MCP resources the same way. That `__` delimiter is the **exact
++scheme you reverse-engineered** when Anthropic's tool-name regex rejected
++`@server/tool` — you independently landed on the real product's convention.
++
++> [!note] Keep it honest
++> `@file` in a real client is sometimes a *built-in* filesystem read rather than an
++> MCP resource — but the **pattern** (user-selected, app-injected, read-only) is
++> identical. And production hosts add what this assignment skips: tool **permission
++> gating**, **remote transport + OAuth**, and further primitives (**sampling,
++> roots, elicitation, `listChanged`**) — see [[11-conclusion]].
++
++> [!tip] Phone takeaway
++> One axis — **who invokes?** — sets everything: **tool** = model-driven → auto
++> actions (gated); **resource** = user-driven `@`-context (data to inject);
++> **prompt** = user-driven `/`-command (conversation to run). The control model
++> *is* the UX surface.
++
++Related: [[tools]] · [[resources]] · [[prompt-templates]] · [[anthropic-tool-use-schema]] · [[mcp-resource-access]] · [[mcp-prompt-access]] · [[mcp-client]] · [[09-configuring-servers-for-claude-desktop]] · [[11-conclusion]]
+diff --git a/notes/_concepts/mcp-prompt-access.md b/notes/_concepts/mcp-prompt-access.md
+new file mode 100644
+index 0000000..c679377
+--- /dev/null
++++ b/notes/_concepts/mcp-prompt-access.md
+@@ -0,0 +1,71 @@
++---
++title: Selecting & running MCP prompts
++slug: mcp-prompt-access
++tags: [concept, mcp, prompts]
++---
++
++# Selecting & running MCP prompts
++
++The prompt counterpart of [[mcp-resource-access]] — *how a prompt template gets
++selected, rendered, and run*. Like resources, prompts are **user-controlled**, but
++what comes back differs:
++
++> A prompt has no model-driven trigger (it's not a `tool_use`). The **user** invokes
++> it — the course/assignment surfaces this as a **`/prompt <name> <k=v>…`** slash
++> command. And unlike a resource (read-only *data* you inject), a prompt returns
++> **conversation messages you run** through the model.
++
++## Two phases: discover, then invoke
++
++1. **Discover** — `list_prompts()` (gated on the `prompts` capability — see
++   [[mcp-session-init]]) yields `Prompt`s: `name`, `description`, and
++   **`arguments`** (each a `PromptArgument` = `name`, `description`, `required`).
++   A `/prompts` command lists these so the user knows what to call and which args
++   are required.
++2. **Invoke** — `get_prompt(name, arguments)` renders the template server-side and
++   returns messages — see [[mcp-prompt-result]].
++
++## The argument gotcha: `dict[str, str]`
++
++`get_prompt(name, arguments)` types `arguments` as **`dict[str, str]`** — *every
++value is a string*. 
++
++A prompt like `generate_search_prompt(topic, num_papers=5)` must be called with `num_papers` **stringified**:
++
++```python
++await session.get_prompt(
++    "generate_search_prompt",
++    {"topic": "diffusion models", "num_papers": "3"},   # "3", not 3
++)
++```
++
++Parse `/prompt generate_search_prompt topic=… num_papers=…` into a `{str: str}` map
++and **don't coerce numbers** — the server does its own typing from the string.
++
++## The run workflow
++
++```python
++# 1. user: /prompt generate_search_prompt topic=diffusion num_papers=3
++result = await session.get_prompt(name, args)        # → GetPromptResult.messages
++# 2. turn the rendered message(s) into a query and run them through the loop
++text = result.messages[0].content.text               # single-message prompt → its text
++await self.process_query(text)                        # reuse the tool-use loop
++```
++
++For multi-message prompts, map each `PromptMessage` (role + content) into an
++Anthropic message and seed `process_query` / the loop with the whole list.
++
++## Selection — same rule as resources
++
++Prompts are picked by the **user** (the `/prompt` command), not the model. If you
++ever want the model to invoke one, promote it to a [[tools|tool]] and reuse the
++[[tool-use-loop]] — don't build a bespoke selector. (Same reasoning as
++[[mcp-resource-access]].)
++
++> [!tip] Phone takeaway
++> Prompts are **user-invoked** (`/prompt name k=v`), two-phase: `list_prompts`
++> (name / description / **arguments**) → `get_prompt(name, {str:str})`. Args are
++> **all strings**. The result is **messages to run** (feed to `process_query`),
++> not data to inject.
++
++Related: [[mcp-prompt-result]] · [[prompt-templates]] · [[mcp-resource-access]] · [[mcp-session-init]] · [[tool-use-loop]] · [[06-creating-an-mcp-client]] · [[08-adding-prompt-and-resource-features]]
+diff --git a/notes/_concepts/mcp-prompt-result.md b/notes/_concepts/mcp-prompt-result.md
+new file mode 100644
+index 0000000..76660b2
+--- /dev/null
++++ b/notes/_concepts/mcp-prompt-result.md
+@@ -0,0 +1,70 @@
++---
++title: MCP prompt get result
++slug: mcp-prompt-result
++tags: [concept, mcp, prompts]
++---
++
++# MCP prompt get result
++
++What `await session.get_prompt(name, arguments)` returns: a **`GetPromptResult`**.
++The prompt counterpart of [[mcp-resource-result]] / [[mcp-tool-result]] — but the
++payload is **ready-to-send conversation messages**, not data or a tool's output.
++
++## The schema
++
++`GetPromptResult` = `meta`, `description`, and **`messages`** — a list of
++`PromptMessage`:
++
++| field | type | notes |
++|---|---|---|
++| `description` | `str` | human summary of the rendered prompt |
++| `messages` | `list[PromptMessage]` | the rendered conversation to run |
++
++`PromptMessage` = **`role`** (`"user"` / `"assistant"` — the same vocabulary as the
++Anthropic Messages API) + **`content`** — note **one block, not a list** (contrast
++the resource `contents` *list* and the `tool_result` content *list*). The block is
++one of:
++
++| content type | payload | use |
++|---|---|---|
++| `TextContent` | `.text` | the common case — the rendered instruction text |
++| `ImageContent` / `AudioContent` | `.data` (base64) + `.mimeType` | host maps to a provider block, as in [[mcp-resource-result]] |
++| `EmbeddedResource` | `.resource` (a `Text`/`BlobResourceContents`) | resource bytes baked into the prompt — the "resource → model" path |
++| `ResourceLink` | `.uri` (+ `name`/`mimeType`) | a *pointer* to a resource, not its bytes |
++
++## Consuming it
++
++`role` already matches Anthropic's vocabulary, so conversion is mostly pulling text:
++
++```python
++result = await session.get_prompt(name, arguments)
++anthropic_messages = [
++    {"role": m.role, "content": m.content.text}       # TextContent — the usual case
++    for m in result.messages
++    if m.content.type == "text"
++]
++```
++
++In this project's flow the prompt renders to a single user message: extract
++`result.messages[0].content.text` and hand it to `process_query` to run — see
++[[mcp-prompt-access]].
++
++## vs. tool / resource results
++
++| | [[mcp-tool-result]] | [[mcp-resource-result]] | prompt get (`GetPromptResult`) |
++|---|---|---|---|
++| trigger | model (`tool_use`) | app / user | app / user (slash command) |
++| payload | `content` blocks (+ `structuredContent`) | `contents` (text/blob parts) | **`messages`** (role + one block each) |
++| meant to | answer a tool call | supply context **data** | **drive a conversation turn** |
++| error | `isError` flag | raises | raises |
++
++The defining difference: a prompt result is **conversation to *run***, whereas a
++resource result is **data to *inject***.
++
++> [!tip] Phone takeaway
++> `get_prompt` → `GetPromptResult.messages`: a list of `PromptMessage` =
++> `role` (user/assistant) + **one** `content` block (usually `TextContent.text`).
++> It's a **conversation to run**, not data to inject; `role` already matches
++> Anthropic's. No `isError` — failures raise.
++
++Related: [[mcp-prompt-access]] · [[prompt-templates]] · [[mcp-resource-result]] · [[mcp-tool-result]] · [[mcp-session-init]] · [[08-adding-prompt-and-resource-features]]
+diff --git a/notes/_concepts/mcp-resource-access.md b/notes/_concepts/mcp-resource-access.md
+new file mode 100644
+index 0000000..47d169c
+--- /dev/null
++++ b/notes/_concepts/mcp-resource-access.md
+@@ -0,0 +1,64 @@
++---
++title: Reading & using MCP resources
++slug: mcp-resource-access
++tags: [concept, mcp, resources]
++---
++
++# Reading & using MCP resources
++
++The resource counterpart of [[anthropic-tool-use-schema]] — *how a resource gets
++selected, read, and fed to the model*. The crucial asymmetry, up front:
++
++> **A resource has no Messages API representation.** Unlike a `tool_use` block
++> (model-driven, part of the Anthropic request/response), the LLM never "calls" a
++> resource. Resources are **application-controlled** (see [[resources]]): the host
++> reads them and decides whether to inject the contents into context.
++
++So "resource use" is **read + inject**, not a model turn.
++
++## Who selects? (not the model, by default)
++
++| mechanism | who picks | when |
++|---|---|---|
++| `@resource` REPL syntax | the **user** | the course/assignment default |
++| promote resource → [[tools|tool]] | the **model**, via the existing [[tool-use-loop]] | when you want autonomy — reuse the loop, don't build a selector |
++| bespoke LLM "selector" call | — | over-engineering; duplicates `tool_choice` |
++
++The takeaway: don't invent a parallel selector — either the **user** picks via `@`,
++or you **expose the resource as a tool** so the loop you already have selects it.
++
++## The access workflow
++
++```python
++# 1. resolve the URI (concrete vs templated)
++uri = registry[name]["uri"]                  # "papers://folders"  OR  "papers://{topic}"
++if template_args:
++    uri = uri.format(**template_args)         # "papers://{topic}" → "papers://quantum"
++# 2. read — read_resource accepts AnyUrl | str (it coerces a str)
++result = await session.read_resource(uri)     # → ReadResourceResult, see [[mcp-resource-result]]
++# 3. inject the text into context YOURSELF (resources aren't a model turn)
++text = "\n".join(p.text for p in result.contents if hasattr(p, "text"))
++```
++
++## URI addressing: concrete vs templated
++
++- **Concrete** (`papers://folders`) — a fixed address, discovered via `list_resources()`.
++- **Templated** (`papers://{topic}`) — an RFC 6570 template, discovered via
++  `list_resource_templates()`; fill the variables before reading. `str.format`
++  covers simple `{var}` slots; full RFC 6570 has richer syntax (`{?query}`, …).
++
++See [[mcp-session-init]] for how both kinds get registered and routed.
++
++## Injecting into context
++
++Resources carry **reference data, not instructions**. The typical pattern: read the
++text and prepend/append it to the next `user` message (or a system note) so the
++model can ground its answer on it. **You own this step** — nothing flows back
++automatically the way a `tool_result` re-enters the [[tool-use-loop]].
++
++> [!tip] Phone takeaway
++> Resources are **app/user-controlled** with **no Messages API block**. Flow: pick
++> (user `@`, or promote-to-tool) → resolve URI (`.format` for templates) →
++> `read_resource` → inject the `.text` into context yourself.
++
++Related: [[mcp-resource-result]] · [[resources]] · [[anthropic-tool-use-schema]] · [[mcp-session-init]] · [[tool-use-loop]] · [[06-creating-an-mcp-client]] · [[08-adding-prompt-and-resource-features]]
+diff --git a/notes/_concepts/mcp-resource-result.md b/notes/_concepts/mcp-resource-result.md
+new file mode 100644
+index 0000000..67ecbe7
+--- /dev/null
++++ b/notes/_concepts/mcp-resource-result.md
+@@ -0,0 +1,92 @@
++---
++title: MCP resource read result
++slug: mcp-resource-result
++tags: [concept, mcp, resources]
++---
++
++# MCP resource read result
++
++What `await session.read_resource(uri)` returns: a **`ReadResourceResult`**. The
++resource counterpart of [[mcp-tool-result]] — but simpler, because reading a
++resource is a plain **data fetch**, not a model-invoked action.
++
++## The schema
++
++`ReadResourceResult` has only `meta` and **`contents`** — a **list** (one URI can
++return multiple parts) of either `TextResourceContents` or `BlobResourceContents`:
++
++| part type | fields | payload | use for |
++|---|---|---|---|
++| `TextResourceContents` | `uri`, `mimeType`, **`text`** | UTF-8 string | text / markdown / json — inject into context directly |
++| `BlobResourceContents` | `uri`, `mimeType`, **`blob`** | base64 string | binary (image, pdf) — `base64.b64decode` first |
++
++Both share `uri` + `mimeType` (+ `meta`); they differ only by `.text` vs `.blob`.
++Branch on the type (or on which attribute is present):
++
++```python
++import base64, mcp.types as types
++
++result = await session.read_resource(uri)
++for part in result.contents:                       # always a list
++    if isinstance(part, types.TextResourceContents):
++        use(part.text)                             # the common case in this project
++    else:                                          # BlobResourceContents
++        data = base64.b64decode(part.blob)         # mimeType says how to interpret it
++```
++
++## Why a list, and what `blob` is *actually* for
++
++Two easy misreadings of this schema:
++
++- **The list is not a curated multimodal bundle.** `contents` is a list because
++  **one URI read can yield multiple parts** — the canonical case is a directory-like
++  / aggregate resource returning several files, each its own
++  `Text`/`BlobResourceContents` with its own `uri` + `mimeType`. It is "this read
++  produced N pieces," *not* "here is a pre-assembled text+image prompt." (Resources
++  don't paginate — that's `list_*` + `nextCursor`; this multiplicity is purely
++  one-URI→many-parts.)
++- **`blob` is general binary transport, not a "VLM channel."** Text-vs-blob is an
++  *encoding* split (UTF-8 string vs base64 bytes), not a modality slot. A `blob` +
++  `mimeType` carries *any* non-text resource — image, PDF, audio, archive. Images
++  for a vision model are just one downstream use.
++
++**Who assembles model context? The host — not MCP.** `read_resource` hands you raw
++parts; *you* decide what reaches the model and convert it. MCP performs no modality
++mapping. For a vision model on Anthropic, a `blob` becomes an image block yourself:
++
++```python
++{"type": "image",
++ "source": {"type": "base64", "media_type": part.mimeType, "data": part.blob}}
++# (a PDF blob → an Anthropic `document` block instead)
++```
++
++> When resource bytes are meant to flow *into a model-facing message* (inside a
++> **tool result** or a **prompt message**), MCP wraps them in an `EmbeddedResource`
++> content block — that's the spec's "resource → model" path. Plain `read_resource`
++> (the app-controlled fetch) just returns raw `contents`; surfacing them is on you.
++> See [[mcp-resource-access]].
++
++> In *this* project the research resources (`papers://folders`, `papers://{topic}`)
++> return markdown, so a read shows a **single** `TextResourceContents` — the
++> blob/multi-part machinery is general MCP this server never exercises.
++
++## vs. a tool result
++
++| | [[mcp-tool-result]] (`CallToolResult`) | resource read (`ReadResourceResult`) |
++|---|---|---|
++| trigger | model decides (`tool_use`) | app/user decides — see [[mcp-resource-access]] |
++| payload | `content` blocks (+ optional `structuredContent`) | `contents`: text / blob parts |
++| error signal | `isError` flag | **none** — a failed read *raises* |
++
++A resource read has **no `isError` channel**: there's no "logic-level failure" to
++report — the fetch either returns `contents` or raises, so wrap it in `try/except`
++rather than checking a flag.
++
++> [!tip] Phone takeaway
++> `read_resource(uri)` → `ReadResourceResult.contents`, a **list** of
++> `TextResourceContents` (`.text`) or `BlobResourceContents` (`.blob`, base64).
++> Branch on text vs blob, honour `mimeType`; **no `isError`** — failures raise.
++> The list = one-URI→many-parts (not a multimodal bundle); `blob` = any binary
++> (not a VLM channel); **the host** maps it into the model's image/document block.
++
++Related: [[mcp-resource-access]] · [[resources]] · [[mcp-tool-result]] · [[mcp-session-init]] · [[08-adding-prompt-and-resource-features]]
+diff --git a/notes/_concepts/mcp-session-init.md b/notes/_concepts/mcp-session-init.md
+new file mode 100644
+index 0000000..1e2eaef
+--- /dev/null
++++ b/notes/_concepts/mcp-session-init.md
+@@ -0,0 +1,211 @@
++---
++title: MCP session init & primitive registration
++slug: mcp-session-init
++tags: [concept, mcp, client, session]
++---
++
++# MCP session init & primitive registration
++
++What `connect_to_server` in [[06-creating-an-mcp-client]] actually does: 
++- Open one [[mcp-client]] [`ClientSession`] to one [[mcp-server]]
++- **Handshake**
++- Then **discover** its three primitives 
++  - [[tools]]
++  - [[resources]]
++  - [[prompt-templates]]
++- Finally, copy them into host-side registries. 
++
++Two things must be right: the **call sequence**, and the **schema mapping** from each MCP return value to the registry entry your dispatch code later looks up.
++
++## The workflow
++
++```python
++async with stdio_client(params) as (read, write):
++    async with ClientSession(read, write) as session:
++        # 1. handshake + capability negotiation
++        init = await session.initialize()
++        # 2. discover          
++        tools     = await session.list_tools()         
++        resources = await session.list_resources()
++        templates = await session.list_resource_templates()
++        prompts   = await session.list_prompts()
++```
++
++1. **`initialize()` → `InitializeResult`** — the mandatory handshake. Returns
++    - `protocolVersion`
++    - `serverInfo`
++    - `instructions`
++    - and crucially **`capabilities`**.
++   Everything else must come *after* this awaits.
++
++2. **`list_*()`** — one call per primitive kind. Each returns a *wrapper* object
++   (the list is an attribute, not the result itself — the trap that made
++   `for t in result` iterate the model's fields instead of the tools):
++
++   | call | wrapper | the list attribute |
++   |---|---|---|
++   | `list_tools()` | `ListToolsResult` | `.tools` |
++   | `list_resources()` | `ListResourcesResult` | `.resources` |
++   | `list_resource_templates()` | `ListResourceTemplatesResult` | `.resourceTemplates` |
++   | `list_prompts()` | `ListPromptsResult` | `.prompts` |
++
++   Each wrapper also has `.nextCursor` — large servers **paginate**; loop on the
++   cursor if you need every item.
++
++> [!warning] Not every server supports every primitive
++> `initialize()`'s `capabilities` says which of `tools` / `resources` / `prompts`
++> the server offers. Calling `list_prompts()` on a server with no prompt capability
++> (e.g. the `filesystem` or `fetch` reference servers in
++> [[07-connecting-the-mcp-chatbot-to-reference-servers]]) **raises**. Guard each
++> discovery call in `try/except` (or check `capabilities` first) so one bare server
++> doesn't abort the whole connect.
++
++## Checking server capabilities
++
++`initialize()` returns an `InitializeResult` whose **`.capabilities`** is a
++`ServerCapabilities`. (If you didn't keep the result, the session caches it —
++`session.get_server_capabilities()` returns the same object.)
++
++Each primitive is an **optional field: `None` ⇒ unsupported**, a sub-object ⇒
++supported. The sub-object's flags are about *change notifications*, not whether
++listing works — so gate on `is not None`, don't inspect the inner flags.
++
++| field | type when supported | sub-flags | `None` means |
++|---|---|---|---|
++| `tools` | `ToolsCapability` | `listChanged` | no tools — skip `list_tools()` |
++| `resources` | `ResourcesCapability` | `subscribe`, `listChanged` | no resources **or templates** — skip both list calls |
++| `prompts` | `PromptsCapability` | `listChanged` | no prompts — skip `list_prompts()` |
++| `logging` / `completions` / `experimental` / `tasks` | — | — | feature absent |
++
++> Resource **templates** have no capability of their own — they live under
++> `resources`, so gate `list_resource_templates()` on `caps.resources` too.
++
++### Capability-gated discovery + try/except
++
++Use **both**: 
++- The capability gate skips the *expected* "this server has no prompts" case cleanly (no exception spam)
++- And `try/except` still catches the *unexpected*
++    - A server that advertises a primitive but errors
++    - A transport blip
++    - Or a version mismatch. 
++Defense in depth across a multi-server host.
++
++```python
++init = await session.initialize()
++caps = init.capabilities                     # or: session.get_server_capabilities()
++
++async def _safe(list_call, label):
++    """Run a list_*() call, swallowing failures into a skipped registration."""
++    try:
++        return await list_call()
++    except Exception as e:                    # not asyncio.CancelledError (BaseException)
++        print(f"[{server_name}] {label} discovery failed: {e}")
++        return None
++
++# --- tools ---
++if caps.tools is not None:
++    result = await _safe(session.list_tools, "tools")
++    for tool in (result.tools if result else []):
++        self.available_tools.append({
++            "name": self._enclose_tool_name(tool.name, server_name),
++            "description": tool.description,
++            "input_schema": tool.inputSchema,
++        })
++
++# --- resources + templates (both gated on caps.resources) ---
++if caps.resources is not None:
++    result = await _safe(session.list_resources, "resources")
++    for r in (result.resources if result else []):
++        self.resource_to_session[str(r.uri)] = session
++    result = await _safe(session.list_resource_templates, "resource templates")
++    for tpl in (result.resourceTemplates if result else []):
++        self.resource_to_session[tpl.uriTemplate] = session
++
++# --- prompts ---
++if caps.prompts is not None:
++    result = await _safe(session.list_prompts, "prompts")
++    for p in (result.prompts if result else []):
++        self.available_prompts.append(
++            {"name": p.name, "description": p.description, "arguments": p.arguments}
++        )
++        self.prompt_to_session[p.name] = session
++```
++
++For the reference servers in [[07-connecting-the-mcp-chatbot-to-reference-servers]],
++the gate alone is enough (`filesystem`/`fetch` simply declare no `prompts`); the
++`try/except` is the belt-and-suspenders layer for everything else.
++
++## MCP return schemas → host registry entries
++
++The discovered item carries MCP-side (often camelCase) fields; you only extract a few
++and reshape them into the entry your host stores. 
++
++The key transform is `inputSchema` → `input_schema` (see [[openai-to-anthropic-migration]] / [[anthropic-tool-use-schema]]).
++
++### `Tool`
++**Tool** (`name`, `title`, `description`, **`inputSchema`**, `outputSchema`, `annotations`, …) →
++```python
++self.available_tools.append({
++    "name": self._enclose_tool_name(tool.name, server_name),  # server__tool, regex-safe
++    "description": tool.description,
++    "input_schema": tool.inputSchema,        # camelCase → snake_case
++})
++```
++
++### Resource & ResourceTemplate
++**Resource** (`uri`, `name`, `title`, `description`, `mimeType`, `size`) and
++**ResourceTemplate** (**`uriTemplate`**, `name`, `description`, `mimeType`) →
++store the addressable string and which session owns it:
++```python
++# concrete resources have a fixed `uri`; templates have a `uriTemplate` (papers://{topic})
++self.resource_to_session[str(resource.uri)] = session          # for read_resource(uri)
++```
++> Concrete vs templated is a real split: `papers://folders` shows up in
++> `list_resources()`
++> but `papers://{topic}` only appears in `list_resource_templates()`. 
++> List **both** or you'll miss the templated ones.
++
++### Prompt
++**Prompt** (`name`, `title`, `description`, **`arguments`**) where each
++`PromptArgument` is (`name`, `description`, `required`) →
++```python
++self.available_prompts.append({
++    "name": prompt.name,
++    "description": prompt.description,
++    "arguments": prompt.arguments,           # list[PromptArgument]
++})
++self.prompt_to_session[prompt.name] = session
++```
++
++## The routing problem (why registries differ per primitive)
++
++`self.sessions` is keyed by **server name**, but the model/host later dispatches by
++*tool name*, *resource URI*, or *prompt name* — none of which carry the server.
++So registration must record enough to route back:
++
++| primitive | dispatch key | how this client routes |
++|---|---|---|
++| tool | the namespaced name Claude returns | embed server in the name (`server__tool`), `_disclose_tool_name` recovers it → `sessions[server]` |
++| resource | a `papers://…` URI | a `uri → session` map built at registration (URIs aren't namespaced) |
++| prompt | a prompt name | a `name → session` map (or namespace prompt names too) |
++
++The lesson: **whatever your dispatch looks up, build that index during
++registration** — a connection map alone (`server → session`) isn't enough for
++resources and prompts.
++
++## Consuming the registered primitives (later)
++
++- `await session.call_tool(name, arguments)` → `CallToolResult` — see [[mcp-tool-result]].
++- `await session.read_resource(uri)` → `ReadResourceResult` (`.contents`) — see [[mcp-resource-result]]; the select/read/inject flow is [[mcp-resource-access]].
++- `await session.get_prompt(name, arguments)` → `GetPromptResult` (`.messages`) — see [[mcp-prompt-result]]; the select/render/run flow is [[mcp-prompt-access]].
++Then feed the message text back into `process_query` to run it.
++
++> [!tip] Phone takeaway
++> `initialize()` **first** (negotiates capabilities), then `list_tools` /
++> `list_resources` / `list_resource_templates` / `list_prompts` — each returns a
++> *wrapper* (`.tools`, `.resources`, …), not a bare list, and may **raise** if the
++> server lacks that primitive. Reshape items into registry entries
++> (`inputSchema`→`input_schema`), and build a **routing index** for whatever key
++> dispatch uses (tool name / URI / prompt name).
++
++Related: [[mcp-client]] · [[mcp-server]] · [[tools]] · [[resources]] · [[prompt-templates]] · [[mcp-tool-result]] · [[anthropic-tool-use-schema]] · [[06-creating-an-mcp-client]] · [[07-connecting-the-mcp-chatbot-to-reference-servers]] · [[08-adding-prompt-and-resource-features]]
+diff --git a/notes/_concepts/mcp-tool-result.md b/notes/_concepts/mcp-tool-result.md
+new file mode 100644
+index 0000000..f8ea5e1
+--- /dev/null
++++ b/notes/_concepts/mcp-tool-result.md
+@@ -0,0 +1,54 @@
++---
++title: MCP tool-call result (content vs structuredContent)
++slug: mcp-tool-result
++tags: [concept, mcp, tool-use]
++---
++
++# MCP tool-call result
++
++What `await session.call_tool(...)` returns: an MCP **`CallToolResult`**. The
++[[mcp-client]] translates this into an Anthropic `tool_result` block (see the
++schema in [[anthropic-tool-use-schema]]) to continue the [[tool-use-loop]].
++
++## The three fields
++
++| field | type | always present? | purpose |
++|---|---|---|---|
++| `content` | list of typed blocks (`text`, `image`, `audio`, `resource`, `resource_link`) | ✅ yes | **unstructured, model-readable** representation — what you forward to the LLM |
++| `structuredContent` | a single JSON object | only if the tool declares an `outputSchema` | **machine-readable**, schema-validated result — for *your code*, not the prompt |
++| `isError` | `bool` | ✅ yes | `true` = the tool ran but **failed at the logic level** (bad args, not found). Distinct from a protocol/transport error, which *raises* instead |
++
++## `content` vs `structuredContent` — which to use
++
++Use **`content`** to build the LLM-facing `tool_result`. It's always present and
++is the representation the model is meant to read.
++
++`structuredContent` is the *typed mirror* — present only when the tool advertises
++an `outputSchema`. Reach for it when **your program** needs the data (parse a
++number, drive control flow, validate), not when feeding the model.
++
++> The MCP spec says a tool returning `structuredContent` **SHOULD also emit a
++> functionally-equivalent serialization in `content`** (usually the JSON as a
++> `text` block), precisely so a client can forward *something* without
++> understanding the schema. So `content` is the safe default; feeding **both** to
++> the model is redundant.
++
++Edge case: a tool that returns *only* `structuredContent` with no text mirror
++leaves `content` empty — then `json.dumps(structuredContent)` into a text block is
++a reasonable fallback (otherwise the client's `content or "(no text)"` guard kicks in).
++
++## `isError` — let the model recover
++
++A logic-level failure comes back as `isError: true` with the explanation inside
++`content`. Pass it straight to the Anthropic `tool_result`'s `is_error` so Claude
++sees the failure and adapts, rather than treating an error string as a real answer.
++Transport/protocol failures don't set this — they raise, so wrap `call_tool` in
++`try/except` and synthesize an `is_error` result yourself.
++
++> [!tip] Phone takeaway
++> `call_tool` → `CallToolResult{content, structuredContent, isError}`. Feed
++> **`content`** to the LLM (always there, human/model-readable);
++> **`structuredContent`** is the optional typed mirror for *your* code; propagate
++> **`isError`** so Claude can recover.
++
++Related: [[anthropic-tool-use-schema]] · [[tool-use-loop]] · [[tools]] · [[mcp-client]] · [[06-creating-an-mcp-client]]
+diff --git a/notes/_concepts/openai-to-anthropic-migration.md b/notes/_concepts/openai-to-anthropic-migration.md
+new file mode 100644
+index 0000000..a7918b9
+--- /dev/null
++++ b/notes/_concepts/openai-to-anthropic-migration.md
+@@ -0,0 +1,44 @@
++---
++title: OpenAI → Anthropic Python SDK migration
++slug: openai-to-anthropic-migration
++tags: [concept, anthropic, sdk, gotchas]
++---
++
++# OpenAI → Anthropic Python SDK migration
++
++The `mcp_research` client talks to Claude through the **`anthropic` SDK**, but a
++lot of "Anthropic-compatible" hub docs (e.g. the NVIDIA inference hub) are written
++for the **OpenAI** SDK. 
++
++The two SDKs differ in small, high-friction ways — each one below was a real 400/404 hit while wiring up [[06-creating-an-mcp-client]].
++
++See [[anthropic-tool-use-schema]] for the target shapes.
++
++| Concern | OpenAI SDK | Anthropic SDK (`AsyncAnthropic`) |
++|---|---|---|
++| **Base URL** | includes `/v1` (`…/v1`) | **bare host** — SDK appends `/v1/messages` itself. A `…/v1` value → `…/v1/v1/messages` → **404** |
++| **System prompt** | a `{"role": "system"}` message | **top-level `system=` string**; `messages` is user/assistant only |
++| **`tool_choice`** | string `"auto"` | **tagged object** `{"type": "auto"}` — a bare string 400s (`expected internally tagged enum`) |
++| **Tool definition** | `{"type":"function","function":{… "parameters":…}}` | flat `{"name","description","input_schema"}` |
++| **Tool name chars** | lenient | must match `^[a-zA-Z0-9_-]{1,128}$` (no `@` `/` `.`) → namespace with `__` |
++| **Response** | `resp.choices[0].message` | `message.content` = list of typed blocks; branch on `.type` |
++| **Tool call** | `message.tool_calls[]` | `tool_use` content blocks (`.id`/`.name`/`.input`) |
++| **Stop field** | `finish_reason` | `stop_reason` (`tool_use`/`end_turn`/`max_tokens`/`refusal`) |
++| **Tool result** | a `{"role":"tool","tool_call_id":…}` message | a **`user`** turn with `tool_result` blocks keyed by `tool_use_id` |
++| **`max_tokens`** | optional | **required** |
++| **Async** | `AsyncOpenAI` | `AsyncAnthropic` + `await` — no `nest_asyncio` hack (modernization #6) |
++
++## Credentials via env
++
++`AsyncAnthropic()` (no args) auto-reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`
++from the environment — load `.env` *before* constructing the client. On a gateway,
++the **model id is a provider-routed string** (e.g. `us/aws/anthropic/eccn-claude-opus-4-8`),
++not the bare `claude-…` alias.
++
++> [!tip] Phone takeaway
++> Three traps, in the order they bite: **base URL** drops the `/v1`; **system** is a
++> param not a message; **`tool_choice`** is `{"type":"auto"}` not `"auto"`. Then tool
++> **names** can't contain `@`/`/`, and tool **results** are a `user` turn of
++> `tool_result` blocks — not a `role:"tool"` message.
++
++Related: [[anthropic-tool-use-schema]] · [[tool-use-loop]] · [[06-creating-an-mcp-client]] · [[mcp-client]]
+diff --git a/notes/_concepts/prompt-templates.md b/notes/_concepts/prompt-templates.md
+index 05d6351..32411f7 100644
+--- a/notes/_concepts/prompt-templates.md
++++ b/notes/_concepts/prompt-templates.md
+@@ -14,4 +14,4 @@ Declared with `@mcp.prompt()`. The decorated function's parameters become the
+ template's arguments (required vs. optional from defaults), and its return value
+ is the prompt string the client feeds to the model.
+ 
+-Related: [[tools]] · [[resources]] · [[mcp-server]] · [[08-adding-prompt-and-resource-features]]
++Related: [[tools]] · [[resources]] · [[mcp-server]] · [[mcp-prompt-access]] · [[mcp-prompt-result]] · [[mcp-control-model]] · [[08-adding-prompt-and-resource-features]]
+diff --git a/notes/_concepts/resources.md b/notes/_concepts/resources.md
+index 1f03fa2..4ffe035 100644
+--- a/notes/_concepts/resources.md
++++ b/notes/_concepts/resources.md
+@@ -14,4 +14,4 @@ Declared with `@mcp.resource("<uri>")`. URIs can be static (`papers://folders`)
+ or templated (`papers://{topic}`) so one resource serves many addresses.
+ Resources update dynamically as the underlying data changes.
+ 
+-Related: [[tools]] · [[prompt-templates]] · [[mcp-server]] · [[08-adding-prompt-and-resource-features]]
++Related: [[tools]] · [[prompt-templates]] · [[mcp-server]] · [[mcp-session-init]] · [[mcp-resource-access]] · [[mcp-resource-result]] · [[mcp-control-model]] · [[08-adding-prompt-and-resource-features]]
+diff --git a/notes/_concepts/tool-use-loop.md b/notes/_concepts/tool-use-loop.md
+index 4a72ce4..73899c6 100644
+--- a/notes/_concepts/tool-use-loop.md
++++ b/notes/_concepts/tool-use-loop.md
+@@ -15,5 +15,7 @@ the **app** does the actual calling and feeds results back.
+ - Same loop whether tools are local Python functions ([[04-chatbot-example]]) or remote
+   [[mcp-server]] tools ([[06-creating-an-mcp-client]]) — only *how the result is fetched* changes.
+ - Built on the Anthropic Messages API `tools=` parameter and `tool_use`/`tool_result` content.
++- The exact request/response shapes (and how to feed results back) live in
++  [[anthropic-tool-use-schema]]; SDK-specific pitfalls in [[openai-to-anthropic-migration]].
+ 
+-Related: [[tools]] · [[mcp-client]] · [[json-rpc]]
++Related: [[tools]] · [[mcp-client]] · [[json-rpc]] · [[anthropic-tool-use-schema]]
+diff --git a/notes/_concepts/tools.md b/notes/_concepts/tools.md
+index 10fc384..b97bfdd 100644
+--- a/notes/_concepts/tools.md
++++ b/notes/_concepts/tools.md
+@@ -15,4 +15,4 @@ its parameters); the model reads these to decide *when* and *how* to call it.
+ - Behind a [[mcp-server]], [[fastmcp]] *infers* the schema from type hints + docstrings.
+ - One of MCP's three primitives, alongside [[resources]] and [[prompt-templates]].
+ 
+-Related: [[tool-use-loop]] · [[mcp-server]] · [[fastmcp]]
++Related: [[tool-use-loop]] · [[mcp-server]] · [[fastmcp]] · [[mcp-tool-result]] · [[mcp-control-model]]
+diff --git a/solutions/mcp-research-assistant/server_config.json b/solutions/mcp-research-assistant/server_config.json
+index 570e617..7dc567a 100644
+--- a/solutions/mcp-research-assistant/server_config.json
++++ b/solutions/mcp-research-assistant/server_config.json
+@@ -1,7 +1,7 @@
+ {
+   "mcpServers": {
+     "research": {
+-      "command": "python",
++      "command": "./starter/.venv/bin/python",
+       "args": ["-m", "mcp_research", "server"]
+     },
+     "filesystem": {
+diff --git a/solutions/mcp-research-assistant/starter/src/mcp_research/.env.example b/solutions/mcp-research-assistant/starter/src/mcp_research/.env.example
+new file mode 100644
+index 0000000..075a64d
+--- /dev/null
++++ b/solutions/mcp-research-assistant/starter/src/mcp_research/.env.example
+@@ -0,0 +1,4 @@
++ANTHROPIC_API_KEY=NVIDIA_REGULATED_INFERENCE_HUB_API_KEY
++# Bare host — the Anthropic SDK appends /v1/messages itself.
++# Do NOT use the OpenAI-style .../v1 (it yields /v1/v1/messages → 404).
++ANTHROPIC_BASE_URL=https://inference-api.nvidia.com
+\ No newline at end of file
+diff --git a/solutions/mcp-research-assistant/starter/src/mcp_research/client.py b/solutions/mcp-research-assistant/starter/src/mcp_research/client.py
+index ebf399e..61ee0d1 100644
+--- a/solutions/mcp-research-assistant/starter/src/mcp_research/client.py
++++ b/solutions/mcp-research-assistant/starter/src/mcp_research/client.py
+@@ -16,6 +16,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ from contextlib import AsyncExitStack
++from collections import defaultdict
+ from typing import Any
+ 
+ from anthropic import AsyncAnthropic
+@@ -25,22 +26,132 @@ from mcp.client.stdio import stdio_client
+ 
+ from .config import load_server_config
+ 
+-DEFAULT_MODEL = "claude-sonnet-4-6"
+-MAX_TOKENS = 2024
+-
++DEFAULT_MODEL = "us/aws/anthropic/eccn-claude-opus-4-8"
++MAX_TOKENS = 10240
++MAX_TOOL_CALLS = 10
+ 
+ class MCPChatBot:
+     """A chatbot that connects to one or more MCP servers over stdio."""
+ 
+     def __init__(self, model: str = DEFAULT_MODEL) -> None:
+         self.exit_stack = AsyncExitStack()
++        #
+         # TODO(lesson 06): use the ASYNC client. Do NOT use nest_asyncio.
++        # per Claude Code: the client initialization below will parse the following two env. vars. automatically:
++        # - ANTHROPIC_BASE_URL
++        # - ANTHROPIC_API_KEY
++        # 
++        # The Anthropic inference API client
+         self.anthropic = AsyncAnthropic()
++        # The model ID
+         self.model = model
+-        self.available_tools: list[dict[str, Any]] = []
+-        self.available_prompts: list[dict[str, Any]] = []
++        # The capacity registry
++        self.available_capabilities: defaultdict[
++            str, dict[str, Any]
++        ] = defaultdict(dict)
++        # The MCP session registry
+         self.sessions: dict[str, ClientSession] = {}
+ 
++    def _enclose_name(
++        self,
++        util_name: str,
++        server_name: str
++    ) -> str:
++        """ Enclose the utility name with the MCP server name.
++
++        Anthropic utility names must match ^[a-zA-Z0-9_-]{1,128}$
++        so we use '__' as the server/utility delimiter rather than '@'/'/'.
++        """
++        return f"{server_name}__{util_name}"
++
++    def _disclose_name(
++        self,
++        namespaced_util_name: str
++    ) -> tuple[str, str]:
++        """ Disclose the utility name from the MCP server name.
++
++        Inverse of :meth:`_enclose_name`; splits on the first '__'.
++        """
++        server_name, _, util_name = namespaced_util_name.partition("__")
++        return (server_name, util_name)
++
++    async def _safe_list_capability(
++        self,
++        list_call, 
++        server_name, 
++        label
++    ):
++        """Run a list_*() call, swallowing failures into a skipped registration."""
++        try:
++            return await list_call()
++        except Exception as e:                    # not asyncio.CancelledError (BaseException)
++            print(f"[{server_name}] {label} discovery failed: {e}")
++            return None
++
++    async def _register_tools(
++        self, 
++        session,
++        server_name,
++    ):
++        """Register MCP tools"""
++        result = await self._safe_list_capability(session.list_tools, server_name, "tools")
++        for tool in (result.tools if result else []):
++            namespaced_tool_name = self._enclose_name(tool.name, server_name)
++            self.available_capabilities["tools"][namespaced_tool_name] = {
++                "name": namespaced_tool_name,
++                "description": tool.description,
++                "input_schema": tool.inputSchema,
++            }
++
++    async def _register_resources(
++        self,
++        session,
++        server_name,
++    ):
++        """Register MCP resources"""
++        # Register non-templated resources:
++        result = await self._safe_list_capability(session.list_resources, server_name, "resources")
++        for resource in (result.resources if result else []):
++            # Here we assume the resource URI is globally unique
++            # as the file name in a typical Claude Code workspace
++            self.available_capabilities["resources"][str(resource.uri)] = {
++                "name": resource.name,
++                "description": resource.description,
++                # type(resource.uri): AnyUrl
++                "uri": str(resource.uri),
++                "server_name": server_name
++            }
++        # Register templated resources:
++        result = await self._safe_list_capability(session.list_resource_templates, server_name, "resource templates")
++        for resource_template in (result.resourceTemplates if result else []):
++            # Here we assume the resource template URI is globally unique
++            # as the file name in a typical Claude Code workspace
++            self.available_capabilities["resources"][resource_template.uriTemplate] = {
++                "name": resource_template.name,
++                "description": resource_template.description,
++                # type(resource.uriTemplate): str
++                "uri": resource_template.uriTemplate,
++                "server_name": server_name
++            }
++
++    async def _register_prompts(
++        self,
++        session,
++        server_name,
++    ):
++        """Register MCP prompts"""
++        # Register non-templated resources:
++        result = await self._safe_list_capability(session.list_prompts, server_name, "prompts")
++        for prompt in (result.prompts if result else []):
++            # Here we assume the prompt name is globally unique
++            # as the command name in a typical Claude Code workspace
++            self.available_capabilities["prompts"][prompt.name] = {
++                "name": prompt.name,
++                "description": prompt.description,
++                "arguments": prompt.arguments,
++                "server_name": server_name
++            }
++
+     async def connect_to_server(
+         self, server_name: str, server_config: dict[str, Any]
+     ) -> None:
+@@ -49,51 +160,321 @@ class MCPChatBot:
+         # exit_stack, initialize the session, then list_tools/list_prompts/
+         # list_resources and record each name/URI -> session in self.sessions
+         # (and append tool/prompt metadata to the available_* lists).
+-        raise NotImplementedError("Implement connect_to_server")
++        # Init MCP server params
++        server_params = StdioServerParameters(**server_config)
++
++        # Init stdio client subprocess
++        (read_stream, write_stream) = await self.exit_stack.enter_async_context(
++            stdio_client(server_params)
++        )
++        
++        # Init MCP session
++        session = await self.exit_stack.enter_async_context(
++            ClientSession(read_stream, write_stream)
++        )
++        init = await session.initialize()
++
++        # Register tools
++        if init.capabilities.tools is not None:
++            await self._register_tools(session, server_name)
+ 
++        # Register resources
++        if init.capabilities.resources is not None:
++            await self._register_resources(session, server_name)
++
++        # TODO: Register prompts
++        if init.capabilities.prompts is not None:
++            await self._register_prompts(session, server_name)
++
++        # Update session registry
++        self.sessions[server_name] = session
++    
+     async def connect_to_servers(
+         self, config_path: str = "server_config.json"
+     ) -> None:
+         """Connect to every server declared in the config file."""
+         # TODO(lesson 07): load the config via load_server_config and call
+         # connect_to_server for each entry in data["mcpServers"].
+-        raise NotImplementedError("Implement connect_to_servers")
++        server_config = load_server_config(config_path)
++        for server_name, server_config in server_config["mcpServers"].items():
++            await self.connect_to_server(server_name, server_config)
+ 
+-    async def process_query(self, query: str) -> None:
++    async def process_query(self, query: str | list[dict[str, str]]) -> None:
+         """Run an agentic loop: call Claude, dispatch tool calls, repeat."""
+-        # TODO(lesson 06): loop — `await self.anthropic.messages.create(...)`,
+-        # print text blocks, and for each tool_use block look up the session,
+-        # `await session.call_tool(...)`, and feed a tool_result back. Break
+-        # when the model stops requesting tools.
+-        raise NotImplementedError("Implement process_query")
++        # 
++        # TODO(lesson 06): loop
++        # - `await self.anthropic.messages.create(...)`,
++        # - print text blocks,
++        # - for each tool_use block look up the session,
++        # - `await session.call_tool(...)`,
++        # - feed a tool_result back.
++        # Break when the model stops requesting tools.
++        #
++        if isinstance(query, str):
++            messages = [
++                {
++                    "role": "user",
++                    "content": query,
++                },
++            ]
++        else:
++            messages = query
++
++        for _ in range(MAX_TOOL_CALLS):
++            ai_message = await self.anthropic.messages.create(
++                model=self.model,
++                max_tokens=MAX_TOKENS,
++                # OpenAI -> Anthropic gotcha: pass in a system message as a dedicated string 
++                # instead of one message in `messages` list
++                system=(
++                    "You are my content assistant. "
++                    "Below is an overview of avaiable tools: \n"
++                    "- 'research__*': Get research paper overview from arXiv.\n"
++                    "- 'fetch__*': Fetch URL from web as local Markdown file.\n"
++                    "- 'filesystem__*': General local file system operations.\n"
++                    "If the user is not asking about the above three scopes, answer without calling a tool."
++                ),
++                messages=messages,
++                tools=self.list_tools(),
++                # OpenAI -> Anthropic gotcha: pass in a {"type": "auto"} object instead of "auto"
++                tool_choice={"type": "auto"},
++            )
++            messages.append(
++                {
++                    "role": "assistant",
++                    "content": ai_message.content,
++                }
++            )
+ 
+-    async def get_resource(self, resource_uri: str) -> None:
++            # Show AI response every turn
++            for block in ai_message.content:
++                if block.type == "text":
++                    print("\nAssistant: ", block.text)
++
++            # Break the loop when the model stops requesting tools
++            # - end_turn
++            # - pause_turn
++            # - max_tokens
++            # - refusal
++            if ai_message.stop_reason != "tool_use":
++                break
++            
++            # Per Anthropic spec, the tool calling result should be appended to the user content.
++            user_content = []
++            for block in ai_message.content:
++                match block.type:
++                    case "tool_use":
++                        # Parse target MCP server and tool
++                        namespaced_tool_name = block.name
++                        # Parse tool use id:
++                        tool_use_id = block.id
++                        # Perform MCP tool call
++                        tool_result_content = []
++                        is_tool_error = False
++
++                        try:
++                            # Parse server and tool names
++                            server_name, tool_name = self._disclose_name(namespaced_tool_name)
++                            # Retrieve session for the target MCP server
++                            session = self.sessions[server_name]
++                            # Parse MCP tool calling arguments:
++                            tool_arguments = block.input
++
++                            # Call MCP tool
++                            tool_call_message = await session.call_tool(
++                                name=tool_name, 
++                                arguments=tool_arguments
++                            )
++                            
++                            # Parse tool result content:
++                            for tool_result_block in tool_call_message.content:
++                                match tool_result_block.type:
++                                    case "text":
++                                        tool_result_content.append(
++                                            {
++                                                "type": "text",
++                                                "text": tool_result_block.text
++                                            }
++                                        )
++                                    # TODO: handle other context types
++                            is_tool_error = tool_call_message.isError
++                        except Exception as e:
++                            tool_result_content = f"{namespaced_tool_name} tool call failed with {e}"
++                            is_tool_error = True
++
++                        #
++                        # Assemble tool result block
++                        #
++                        user_content.append(
++                            {
++                                "type": "tool_result",
++                                "tool_use_id": tool_use_id,
++                                # Provide text fallback 
++                                # when no text context is available from tool call
++                                "content": tool_result_content or "(no text context)",
++                                "is_error": is_tool_error,
++                            }
++                        )
++
++            # Per Anthropic spec, the tool calling result should be appended to the user content.
++            messages.append(
++                {
++                    "role": "user",
++                    "content": user_content,
++                }
++            )
++        else:
++            print("\n[ABORTED]: Max tool calls reached without final answer. Abort the query.")
++
++    def list_tools(self):
++        """ List all available tools
++        """
++        return list(self.available_capabilities["tools"].values())
++
++    async def get_resource(
++        self, 
++        resource_uri: str,
++        template_args: dict[str, Any] = None,
++    ) -> str:
+         """Read and print an MCP resource by URI."""
+         # TODO(lesson 08): find the session for resource_uri (with a papers://
+         # fallback), `await session.read_resource(...)`, print the text.
+-        raise NotImplementedError("Implement get_resource")
++        # Retrieve MCP server name:
++        server_name = self.available_capabilities["resources"][resource_uri]["server_name"]
++        # Retrieve session for the target MCP server
++        session = self.sessions[server_name]
++        if template_args is not None:
++            resource_uri = resource_uri.format(**template_args)
++        
++        # Get resource
++        resource_message = await session.read_resource(resource_uri)
++        
++        # TODO: handle non-text modality
++        resouce_content = "\n".join(
++            block.text for block in resource_message.contents if hasattr(block, "text")
++        )
+ 
+-    async def list_prompts(self) -> None:
++        return resouce_content
++
++    def list_prompts(self) -> None:
+         """Print all available prompts."""
++        if not self.available_capabilities["prompts"]:
++            print("No prompts available.")
++            return
++        
+         # TODO(lesson 08): print self.available_prompts (name, description, args).
+-        raise NotImplementedError("Implement list_prompts")
++        print("Available Prompts:")
++        for id, registered_prompt in enumerate(self.available_capabilities["prompts"].values(), start=1):
++            print(f"No {id}.")
++            print(f"Source: {registered_prompt['server_name']}")
++            print(f"Name: {registered_prompt['name']}")
++            print(f"Description: {registered_prompt['description']}")
++            print("Arguments:")
++            for argument in registered_prompt["arguments"]:
++                print(f"  - name: {argument.name}")
++                print(f"  - required: {argument.required}")
++                print(f"  - description: {argument.description}")
++                print()
++            print()
+ 
+-    async def execute_prompt(self, prompt_name: str, args: dict[str, Any]) -> None:
++    async def execute_prompt(self, prompt_name: str, args: dict[str, Any]) -> list[dict[str, str]]:
+         """Fetch a prompt by name, then run its text as a query."""
+         # TODO(lesson 08): `await session.get_prompt(...)`, extract the text from
+         # the first message, then `await self.process_query(text)`.
+-        raise NotImplementedError("Implement execute_prompt")
++        # Retrieve MCP server name:
++        server_name = self.available_capabilities["prompts"][prompt_name]["server_name"]
++        # Retrieve session for the target MCP server
++        session = self.sessions[server_name]
++        
++        # Get prompt
++        prompt_message = await session.get_prompt(
++            prompt_name,
++            args
++        )
++
++        # The target payload is the `.messages` field
++        user_messages = [
++            {
++                "role": m.role,
++                "content": m.content.text,
++            } for m in prompt_message.messages if m.content.type == "text"
++        ] 
++
++        return user_messages
+ 
+     async def chat_loop(self) -> None:
+         """Interactive REPL: queries, @resources, and /prompt commands."""
+-        # TODO(lesson 07/08): read input lines; handle 'quit', @resource syntax,
+-        # /prompts and /prompt <name> <k=v>..., else process_query(query).
+-        raise NotImplementedError("Implement chat_loop")
++        # TODO(lesson 07/08): read input lines then 
++        # - handle 'quit'
++        # - @resource syntax
++        # /prompts and /prompt <name> <k=v>..., 
++        # else process_query(query).
++        print("\nMCP Chatbot Started!")
++        print("Type your queries or 'quit' to exit.")
++
++        while True:
++            try:
++                query = input("\nHuman: ").strip()
++                if not query:
++                    continue
++
++                if query.lower() == "quit":
++                    break
++                
++                # Handle @resource syntax
++                if query.startswith("@"):
++                    topic = query[1:]
++                    resource_uri = (
++                        "papers://topics"
++                        if topic == "topics"
++                        else "papers://{topic}"
++                    )
++                    resource_content =await self.get_resource(
++                        resource_uri,
++                        template_args={
++                            "topic": topic,
++                        }
++                    )
++                    print(
++                        f"@{resource_uri}:\n"
++                        f"{resource_content}"
++                    )
++                    continue
++                
++                # Handle /prompts command
++                if query.startswith("/"):
++                    parts = query.split()
++                    command = parts[0].lower()
++                    
++                    if command == "/prompts":
++                        self.list_prompts()
++                    elif command == "/prompt":
++                        if len(parts) < 2:
++                            print(
++                                "Usage: /prompt <name> <arg1=value1> <arg2=value2>"
++                            )
++                            continue
++                        prompt_name = parts[1]
++                        args = {}
++                        for arg in parts[2:]:
++                            if "=" in arg:
++                                key, value = arg.split("=", 1)
++                                args[key] = value
++                        query =await self.execute_prompt(prompt_name, args)
++                        await self.process_query(query)
++                    else:
++                        print(f"Unknown command: {command}")
++                    
++                    continue
++
++                await self.process_query(query)
++            except Exception as exc:  # noqa: BLE001
++                print(f"\nError: {exc}")
+ 
+     async def cleanup(self) -> None:
+         """Close all open sessions/transports."""
+         # TODO(lesson 06): close the exit_stack.
+-        raise NotImplementedError("Implement cleanup")
++        await self.exit_stack.aclose()
+ 
+ 
+ async def run(config_path: str = "server_config.json") -> None:
+diff --git a/solutions/mcp-research-assistant/starter/src/mcp_research/server.py b/solutions/mcp-research-assistant/starter/src/mcp_research/server.py
+index 195fff5..9796616 100644
+--- a/solutions/mcp-research-assistant/starter/src/mcp_research/server.py
++++ b/solutions/mcp-research-assistant/starter/src/mcp_research/server.py
+@@ -64,9 +64,9 @@ def extract_info(paper_id: str) -> str:
+     )
+ 
+ 
+-@mcp.resource("papers://folders")
+-def get_available_folders() -> str:
+-    """List all available topic folders in the papers directory."""
++@mcp.resource("papers://topics")
++def get_available_topics() -> str:
++    """List all available topics in the papers directory."""
+     # TODO(lesson 08): delegate to arxiv_tools.available_folders_markdown.
+     return arxiv_tools.available_folders_markdown(paper_dir=PAPER_DIR)
+ 
+@@ -89,7 +89,27 @@ def get_topic_papers(topic: str) -> str:
+ def generate_search_prompt(topic: str, num_papers: int = 5) -> str:
+     """Generate a prompt for Claude to find and discuss academic papers."""
+     # TODO(lesson 08): delegate to arxiv_tools.generate_search_prompt.
+-    raise NotImplementedError("Wire up arxiv_tools.generate_search_prompt")
++    return arxiv_tools.generate_search_prompt(
++        topic=topic,
++        num_papers=num_papers
++    )
++
++
++@mcp.prompt()
++def generate_research_paper_abstract_compilation_prompt(
++    topic: str, 
++    num_papers: int = 5
++) -> str:
++    """Generate a prompt for Claude to find research papers and compile their summaries as Markdowns."""
++    # TODO(lesson 08): delegate to arxiv_tools.generate_search_prompt.
++    return (
++        f"As my content assistant, use the search_papers tool to find {num_papers} papers on '{topic}'.\n"
++        f"For each paper:\n"
++        "  - Extract its metadata with the extract_info tool and infer its abstract URL.\n"
++        "  - Then fetch its abstract HTML page as Markdown.\n"
++        "  - Finally, compile it as a document under topic folder directory.\n"
++        "After it's done, give me an overview of your compiled results."
++    )
+ 
+ 
+ def main(transport: str = "stdio") -> None:
+-- 
+2.43.0
+

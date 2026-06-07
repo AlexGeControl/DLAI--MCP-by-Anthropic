@@ -14,4 +14,4 @@ Declared with `@mcp.resource("<uri>")`. URIs can be static (`papers://folders`)
 or templated (`papers://{topic}`) so one resource serves many addresses.
 Resources update dynamically as the underlying data changes.
 
-Related: [[tools]] · [[prompt-templates]] · [[mcp-server]] · [[08-adding-prompt-and-resource-features]]
+Related: [[tools]] · [[prompt-templates]] · [[mcp-server]] · [[mcp-session-init]] · [[mcp-resource-access]] · [[mcp-resource-result]] · [[mcp-control-model]] · [[08-adding-prompt-and-resource-features]]

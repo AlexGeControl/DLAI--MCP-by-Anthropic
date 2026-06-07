@@ -17,4 +17,4 @@ The client's job: **discover and invoke** what a server exposes — list/call [[
 read [[resources]], fetch [[prompt-templates]] — by exchanging [[json-rpc]] messages over
 a [[transport]]. The server *exposes*; the client *consumes*.
 
-related: [[mcp-server]] · [[mcp-host]] · [[06-creating-an-mcp-client]] · [[mcp-architecture]]
+related: [[mcp-server]] · [[mcp-host]] · [[mcp-session-init]] · [[06-creating-an-mcp-client]] · [[mcp-architecture]]

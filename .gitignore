@@ -21,6 +21,8 @@ node_modules/
 *.log
 
 # ── Runtime data (populated by search_papers at runtime) ─────────────────────
+papers/
+solutions/mcp-research-assistant/papers/
 solutions/mcp-research-assistant/starter/papers/
 solutions/mcp-research-assistant/starter/server_config.json
 

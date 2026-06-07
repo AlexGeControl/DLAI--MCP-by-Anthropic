@@ -14,12 +14,22 @@ concepts:
   - stdio-transport
   - tool-use-loop
   - mcp-host
+  - mcp-session-init
 prerequisites:
   - "[[05-creating-an-mcp-server]]"    # the server this client connects to
   - "[[04-chatbot-example]]"           # the tool-use loop reused here
 related:
   - "[[03-mcp-architecture]]"
   - "[[mcp-inspector]]"                # the client replaces the inspector as the way to drive the server
+  - "[[mcp-session-init]]"             # full connect/discover/route workflow
+  - "[[mcp-tool-result]]"              # CallToolResult schema
+  - "[[mcp-resource-access]]"          # select/resolve/read/inject
+  - "[[mcp-resource-result]]"          # ReadResourceResult schema
+  - "[[mcp-prompt-access]]"            # discover/invoke/run
+  - "[[mcp-prompt-result]]"            # GetPromptResult schema
+  - "[[mcp-control-model]]"            # why primitives surface differently
+  - "[[anthropic-tool-use-schema]]"    # Anthropic message shapes
+  - "[[openai-to-anthropic-migration]]"  # SDK gotchas
 leads_to:
   - "[[07-connecting-the-mcp-chatbot-to-reference-servers]]"  # next: one client → many servers
 tags: [mcp, client, stdio, asyncio, session]
@@ -80,19 +90,23 @@ server_params = StdioServerParameters(
 )
 async with stdio_client(server_params) as (read, write):     # launch server as subprocess
     async with ClientSession(read, write) as session:
-        await session.initialize()                            # 1. handshake
-        response = await session.list_tools()                 # 2. discover tools
+        await session.initialize()                            # 1. handshake + capability negotiation
+        response = await session.list_tools()                 # 2. returns ListToolsResult wrapper
         self.available_tools = [{
             "name": tool.name,
             "description": tool.description,
-            "input_schema": tool.inputSchema,                 # schema came from FastMCP inference
-        } for tool in response.tools]
+            "input_schema": tool.inputSchema,                 # camelCase → snake_case; schema from FastMCP
+        } for tool in response.tools]                        # iterate .tools — NOT response itself
 ```
 
-- `stdio_client` gives a `(read, write)` stream pair — the [[stdio-transport]].
-- `ClientSession` is the high-level wrapper exposing `initialize`, `list_tools`, `call_tool`.
-- The tool dicts are reshaped into exactly the Anthropic `tools=` format from Lesson 4 — so the
-  LLM side is identical; only the **source** of the schema changed (server-provided, FastMCP-inferred).
+The course shows tools only. A production host also calls `list_resources()`,
+`list_resource_templates()`, and `list_prompts()` — each returning its own wrapper (`ListResourcesResult`,
+etc.) — and **gates every call on `initialize()`'s capability flags** so bare servers don't abort the
+connect.
+
+> Full details — wrapper types, capability-gating, `try/except` pattern, routing registries,
+> `inputSchema` → `input_schema` reshape, and resources/prompts registration:
+> **[[mcp-session-init]]**
 
 ### Same [[tool-use-loop]], remote execution
 In `process_query`, the one changed line is how a tool runs:
@@ -102,7 +116,11 @@ In `process_query`, the one changed line is how a tool runs:
 result = await self.session.call_tool(tool_name, arguments=tool_args)   # 3. call over MCP
 ```
 
-The server invokes the tool and returns `result.content`, appended as a `tool_result`.
+The server invokes the tool; `result` is a `CallToolResult` (`.content` list, `.isError` flag).
+The host appends a `tool_result` block and calls the model again until `stop_reason != "tool_use"`.
+
+> MCP's `CallToolResult` schema (`.content`, `.structuredContent`, `.isError`): **[[mcp-tool-result]]**  
+> Anthropic `tool_use` / `tool_result` message shapes + the full agentic loop: **[[anthropic-tool-use-schema]]**
 
 ## Mechanics / walkthrough
 
@@ -126,9 +144,16 @@ The server invokes the tool and returns `result.content`, appended as a `tool_re
 ## Connections
 - ⬅ Connects to the server from [[05-creating-an-mcp-server]]; reuses the loop from [[04-chatbot-example]]
 - ➡ Generalized to **many servers via config** in [[07-connecting-the-mcp-chatbot-to-reference-servers]]
-- 📖 Vocabulary: [[mcp-client]], [[mcp-host]], [[stdio-transport]] (replaces the [[mcp-inspector]])
+- 📖 Vocabulary: [[mcp-client]], [[mcp-host]], [[stdio-transport]] (replaces [[mcp-inspector]])
+- 🧩 **Session init & primitive registration** (the full connect/discover/route pattern): [[mcp-session-init]]
+- 🔧 **Tool dispatch** — MCP result schema: [[mcp-tool-result]]; Anthropic message shapes: [[anthropic-tool-use-schema]]; agentic loop: [[tool-use-loop]]
+- 📂 **Resource access** — select/resolve/read/inject flow: [[mcp-resource-access]]; `ReadResourceResult` schema: [[mcp-resource-result]]
+- 💬 **Prompt access** — discover/invoke/run flow: [[mcp-prompt-access]]; `GetPromptResult` schema: [[mcp-prompt-result]]
+- 🎛️ **Why tool/resource/prompt surface differently** in a real host: [[mcp-control-model]]
+- ⚠️ SDK gotchas (base URL, `tool_choice`, tool-name regex): [[openai-to-anthropic-migration]]
 
 > [!tip] Phone takeaway
-> A client is just: launch the server over **stdio**, then `initialize → list_tools → call_tool`
-> through a `ClientSession`. Tools are now **discovered from the server**, not hard-coded — but the
-> tool-use loop driving Claude is the same one from Lesson 4.
+> A client is: launch subprocess over **stdio** → `initialize` (capability handshake) →
+> `list_tools / list_resources / list_prompts` (each returns a *wrapper*, iterate its attribute) →
+> build routing registries → `call_tool / read_resource / get_prompt` on dispatch.
+> The [[tool-use-loop]] driving Claude is unchanged from Lesson 4 — only *how results are fetched* changes.

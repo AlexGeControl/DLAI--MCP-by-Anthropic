@@ -64,9 +64,9 @@ def extract_info(paper_id: str) -> str:
     )
 
 
-@mcp.resource("papers://folders")
-def get_available_folders() -> str:
-    """List all available topic folders in the papers directory."""
+@mcp.resource("papers://topics")
+def get_available_topics() -> str:
+    """List all available topics in the papers directory."""
     # TODO(lesson 08): delegate to arxiv_tools.available_folders_markdown.
     return arxiv_tools.available_folders_markdown(paper_dir=PAPER_DIR)
 
@@ -89,7 +89,27 @@ def get_topic_papers(topic: str) -> str:
 def generate_search_prompt(topic: str, num_papers: int = 5) -> str:
     """Generate a prompt for Claude to find and discuss academic papers."""
     # TODO(lesson 08): delegate to arxiv_tools.generate_search_prompt.
-    raise NotImplementedError("Wire up arxiv_tools.generate_search_prompt")
+    return arxiv_tools.generate_search_prompt(
+        topic=topic,
+        num_papers=num_papers
+    )
+
+
+@mcp.prompt()
+def generate_research_paper_abstract_compilation_prompt(
+    topic: str, 
+    num_papers: int = 5
+) -> str:
+    """Generate a prompt for Claude to find research papers and compile their summaries as Markdowns."""
+    # TODO(lesson 08): delegate to arxiv_tools.generate_search_prompt.
+    return (
+        f"As my content assistant, use the search_papers tool to find {num_papers} papers on '{topic}'.\n"
+        f"For each paper:\n"
+        "  - Extract its metadata with the extract_info tool and infer its abstract URL.\n"
+        "  - Then fetch its abstract HTML page as Markdown.\n"
+        "  - Finally, compile it as a document under topic folder directory.\n"
+        "After it's done, give me an overview of your compiled results."
+    )
 
 
 def main(transport: str = "stdio") -> None:

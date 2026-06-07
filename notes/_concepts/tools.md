@@ -15,4 +15,4 @@ its parameters); the model reads these to decide *when* and *how* to call it.
 - Behind a [[mcp-server]], [[fastmcp]] *infers* the schema from type hints + docstrings.
 - One of MCP's three primitives, alongside [[resources]] and [[prompt-templates]].
 
-Related: [[tool-use-loop]] · [[mcp-server]] · [[fastmcp]]
+Related: [[tool-use-loop]] · [[mcp-server]] · [[fastmcp]] · [[mcp-tool-result]] · [[mcp-control-model]]

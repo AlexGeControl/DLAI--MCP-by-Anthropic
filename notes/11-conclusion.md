@@ -14,6 +14,7 @@ concepts:
   - mcp-client
   - mcp-server
   - remote-server
+  - mcp-control-model
 prerequisites:
   - "[[10-creating-and-deploying-remote-servers]]"
 leads_to:
@@ -21,6 +22,7 @@ leads_to:
 related:
   - "[[02-why-mcp]]"
   - "[[03-mcp-architecture]]"
+  - "[[mcp-control-model]]"
 tags: [mcp, recap, roadmap, sampling, roots, oauth]
 ---
 
@@ -49,6 +51,28 @@ You've covered the **core** of MCP — the [[mcp-architecture]] of [[mcp-host]] 
 [[mcp-server]], the three server primitives ([[tools]], [[resources]], [[prompt-templates]]), and a
 [[remote-server]] deploy. This lesson maps the **frontier**: the parts of the protocol still in active
 development, which is where the ecosystem is heading.
+
+## What you actually built: a real host in miniature
+
+The chatbot from [[06-creating-an-mcp-client]] / [[07-connecting-the-mcp-chatbot-to-reference-servers]]
+is a small but faithful **MCP host** — the same role Claude Desktop and Claude Code play. The three
+server primitives you wired surface in those products as affordances you use every day, and *which*
+affordance is dictated by **who controls invocation** (the full story: [[mcp-control-model]]):
+
+| primitive | controlled by | real-client surface | delivers |
+|---|---|---|---|
+| [[tools]] | the **model** | autonomous "🔧 using *X*…" actions (with an approval gate) | an answer to splice back into the loop |
+| [[resources]] | the **app / user** | **`@`-mention / attach context** | data to **inject** |
+| [[prompt-templates]] | the **user** | **`/` slash command** | a conversation to **run** |
+
+So `@`-context and `/`-commands aren't separate magic — they're the resource and prompt primitives you
+implemented, surfaced in a polished UI. (Tellingly, Claude Code even namespaces MCP prompts as
+`/mcp__<server>__<prompt>` — the same `__` scheme you reverse-engineered for tool names.)
+
+**The gap from your miniature to a production host** is the frontier below *plus* two things the
+course's stdio path skips: **per-tool permission/approval gating** (needed precisely because the model
+is the actor), and **remote transport + OAuth** (Lesson 10's Streamable HTTP is the on-ramp). The
+remaining pieces — sampling, roots, elicitation, a registry — are genuinely still-maturing protocol:
 
 ## Key ideas — what's beyond the course
 
@@ -91,5 +115,7 @@ collisions** across servers; maturing sampling and auth/authorization at scale.
 - 📖 [[remote-server]] · [[mcp-architecture]]
 
 > [!tip] Phone takeaway
-> Core MCP = host/client/server + tools/resources/prompts. The frontier = **OAuth auth, roots,
-> sampling (server asks the LLM), and a registry** — the pieces that turn MCP into agent infrastructure.
+> Core MCP = host/client/server + tools/resources/prompts — and you built a real host in miniature:
+> **tool = model-driven action, resource = `@`-context, prompt = `/`-command** ([[mcp-control-model]]).
+> The frontier = **OAuth auth, roots, sampling (server asks the LLM), and a registry** — plus
+> permission gating — the pieces that turn MCP into agent infrastructure.
